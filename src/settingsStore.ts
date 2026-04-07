@@ -1,13 +1,12 @@
 /**
- * Read Sailor View settings where Headlamp actually stores them.
+ * Read Sailor View settings from Headlamp's persisted plugin config.
  *
- * Plugin settings UI uses ConfigStore(pluginName) → Redux `pluginConfigs[name]` and
- * persists to localStorage key `pluginConfigs` (see Headlamp's pluginConfigSlice).
- * This must match that path — not a custom localStorage key — or filters never see
- * saved view mode / toggles.
+ * Do not import Headlamp's Redux `store` from @kinvolk/headlamp-plugin in plugin code:
+ * the built bundle gets a separate store instance, so getState/subscribe are wrong or undefined.
+ *
+ * Headlamp persists plugin settings to localStorage key `pluginConfigs` (see pluginConfigSlice).
  */
 
-import store from '@kinvolk/headlamp-plugin/lib/redux/stores/store';
 import { DEFAULT_SETTINGS, SailorViewSettings } from './settings';
 
 /** Must match `registerPluginSettings('…', …)` in `src/index.tsx`. */
@@ -37,18 +36,6 @@ export function getFilterDrivingSettingsSignature(): string {
 }
 
 export function getSettings(): SailorViewSettings {
-  try {
-    const state = store.getState() as { pluginConfigs?: Record<string, unknown> };
-    const fromStore = state?.pluginConfigs?.[SAILOR_VIEW_PLUGIN_CONFIG_KEY] as
-      | Partial<SailorViewSettings>
-      | undefined;
-    if (fromStore != null && typeof fromStore === 'object') {
-      return mergeSettings(fromStore);
-    }
-  } catch {
-    // Store not initialised (should not happen inside Headlamp)
-  }
-
   try {
     const raw = localStorage.getItem(PLUGIN_CONFIGS_STORAGE_KEY);
     if (!raw) return DEFAULT_SETTINGS;

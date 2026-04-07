@@ -4,7 +4,7 @@
   "description": "Sailor View — a plain-language Kubernetes dashboard for non-technical operators",
   "main": "dist/main.js",
   "scripts": {
-    "build": "headlamp-plugin build",
+    "build": "headlamp-plugin build && cp package.json dist/package.json",
     "start": "headlamp-plugin start",
     "dev": "./scripts/dev.sh",
     "tsc": "tsc --noEmit"

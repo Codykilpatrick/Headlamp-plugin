@@ -133,9 +133,17 @@ Called with column definitions for resource tables; return the array to use (thi
 
 Registers a settings page and optional “details” component. Must run early if other code reads config from your settings store on load.
 
-**Where Headlamp stores the saved object:** Redux state key **`pluginConfigs[pluginName]`**, persisted under localStorage key **`pluginConfigs`** (JSON object of all plugins). It is **not** a per-plugin `headlamp-plugin-data-…` key. Read settings via the same Redux slice (or that localStorage object) or your filters will ignore the Save button.
+**Where Headlamp stores the saved object:** Redux state key **`pluginConfigs[pluginName]`**, persisted under localStorage key **`pluginConfigs`** (JSON object of all plugins). It is **not** a per-plugin `headlamp-plugin-data-…` key.
 
-Headlamp’s sidebar `useMemo` does not list `pluginConfigs` in its dependency array, so sidebar/route filters may not re-run after Save until navigation or a full reload. This plugin reloads the window when **filter-driving** saved settings change (`viewMode`, terminology, troubleshooting, complexity hiding, `hideRoutes`) so those apply immediately; namespace-only saves do not reload.
+**Do not import Headlamp’s Redux `store` from `@kinvolk/headlamp-plugin` inside plugin source:** the built plugin bundle gets its own store module, so `getState` / `subscribe` are not the running app’s store (often `undefined` or stale). This repo reads settings only from **`localStorage` `pluginConfigs`** via [`src/settingsStore.ts`](../src/settingsStore.ts).
+
+Headlamp’s sidebar `useMemo` does not list `pluginConfigs` in its dependency array, so sidebar/route filters may not re-run after Save until navigation or a full reload. This plugin polls `localStorage` and reloads the window when **filter-driving** settings change (`viewMode`, terminology, troubleshooting, complexity hiding, `hideRoutes`); namespace-only saves do not reload.
+
+**Cluster URLs:** Do not rely on bundled `createRouteURL` for navigation — it depends on the same disconnected store. Use path helpers that prefix `/c/:cluster` from the current `location.pathname` (see [`src/lib/clusterPaths.ts`](../src/lib/clusterPaths.ts)).
+
+## `registerUIPanel`
+
+Registers a React component that mounts inside Headlamp’s main layout (with router context). This plugin uses a **zero-UI** top panel ([`SailorLandingRedirect`](../src/dashboard/SailorLandingRedirect.tsx)) so **sailor** view mode can `history.replace` from the bare cluster URL (`/c/:cluster`) to **System Health** without overriding core routes.
 
 ---
 

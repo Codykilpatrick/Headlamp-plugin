@@ -6,12 +6,13 @@ import {
   registerDetailsViewSection,
   registerRouteFilter,
   registerPluginSettings,
+  registerUIPanel,
 } from '@kinvolk/headlamp-plugin/lib';
-import store from '@kinvolk/headlamp-plugin/lib/redux/stores/store';
 
 import React from 'react';
 import { getFilterDrivingSettingsSignature } from './settingsStore';
 import { SettingsPage } from './settings';
+import { SailorLandingRedirect } from './dashboard/SailorLandingRedirect';
 import { SystemHealthDashboard, SystemDrillDown } from './dashboard/SystemHealthDashboard';
 import { makeTerminologyFilters } from './terminology';
 import { TroubleshootingSection } from './troubleshooting/TroubleshootingPanel';
@@ -45,6 +46,13 @@ registerRoute({
   component: () => React.createElement(SystemDrillDown),
 });
 
+// Phase 1: sailor mode — redirect bare cluster landing (`/c/:cluster`) to System Health
+registerUIPanel({
+  id: 'sailor-landing-redirect',
+  side: 'top',
+  component: () => React.createElement(SailorLandingRedirect),
+});
+
 // ── Feature 2: Plain Language Terminology ────────────────────────────────────
 const { sidebarFilter: terminologySidebarFilter, columnProcessor } = makeTerminologyFilters();
 registerSidebarEntryFilter(terminologySidebarFilter);
@@ -58,13 +66,12 @@ const { routeFilter, sidebarFilter: complexitySidebarFilter } = makeComplexityFi
 registerRouteFilter(routeFilter);
 registerSidebarEntryFilter(complexitySidebarFilter);
 
-// Headlamp’s sidebar tree is memoized without depending on `pluginConfigs`, so filters keep
-// seeing stale results after Save until something else re-runs the memo. Reload when saved
-// plugin settings change so view mode and toggles apply immediately.
+// Headlamp’s sidebar tree is memoized without depending on `pluginConfigs`. We cannot use
+// Headlamp’s Redux store from bundled plugin code (wrong instance). Poll localStorage instead.
 let lastFilterSettingsSig = getFilterDrivingSettingsSignature();
-store.subscribe(() => {
+window.setInterval(() => {
   const next = getFilterDrivingSettingsSignature();
   if (next === lastFilterSettingsSig) return;
   lastFilterSettingsSig = next;
   window.location.reload();
-});
+}, 1500);

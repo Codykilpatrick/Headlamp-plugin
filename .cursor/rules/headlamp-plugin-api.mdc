@@ -5,7 +5,7 @@ alwaysApply: true
 
 # Headlamp plugin (this repo)
 
-Full reference: [docs/HEADLAMP_PLUGIN_API.md](docs/HEADLAMP_PLUGIN_API.md). Plugin settings are stored in Redux `pluginConfigs[pluginName]` and localStorage key `pluginConfigs` — not a custom `headlamp-plugin-data-*` key; use `src/settingsStore.ts` when reading settings outside React.
+Full reference: [docs/HEADLAMP_PLUGIN_API.md](docs/HEADLAMP_PLUGIN_API.md). Read plugin settings from **localStorage `pluginConfigs`** only (`src/settingsStore.ts`) — never import Headlamp’s Redux `store` from `@kinvolk/headlamp-plugin` in plugin code (bundled store is wrong/undefined). For in-cluster paths, use `src/lib/clusterPaths.ts`, not bundled `createRouteURL`.
 
 ## Sidebar (`registerSidebarEntryFilter`)
 

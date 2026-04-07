@@ -53,9 +53,25 @@ HEADLAMP_DOCKER_NETWORK=kind HEADLAMP_DEV_KUBECONFIG="$PWD/kind-internal.kubecon
 
 Open **http://localhost:4466** and you should see the cluster. Edit `src/`, save, refresh the browser to pick up plugin changes.
 
+The `build` script copies **`package.json` into `dist/`** after every compile so Headlamp can load `/plugins/sailor-view/package.json`. If you see **404 on `package.json`** or “Missing package.json”, run `npm run build` once (or save a file so the watcher rebuilds) and refresh.
+
 **Why kubeconfig path matters:** The official Headlamp image runs as user `headlamp`, not root. Mounting credentials under `/root/.kube` makes them unreadable, so the UI shows no cluster. `scripts/dev.sh` mounts your config under `/headlamp/` instead.
 
 **Still broken?** Run `docker logs headlamp-dev` and look for kubeconfig errors. If you see permission errors, bind-mounted files keep host modes — for local dev only you can `chmod 644` on a **copy** of the kubeconfig and point `HEADLAMP_DEV_KUBECONFIG` at that file.
+
+### Bad Gateway on the cluster (⋯ / cloud-off) in Docker
+
+The UI shows your context (e.g. `kind-sailor-view`) and kubeconfig path under `/headlamp/…`, but requests to the API fail. On **macOS/Windows** this almost always means Headlamp in Docker is still using a kubeconfig whose `server:` is **`https://127.0.0.1:…`**. From inside the container, that is not your Kind node.
+
+**Fix:** Stop the dev container, then use the **internal** kubeconfig and **kind** network (same as §2). The `--name` argument is the name you passed to `kind create cluster --name …` (not always the same string as the kubectl context):
+
+```bash
+docker rm -f headlamp-dev
+kind get kubeconfig --internal --name sailor-view > kind-internal.kubeconfig
+HEADLAMP_DOCKER_NETWORK=kind HEADLAMP_DEV_KUBECONFIG="$PWD/kind-internal.kubeconfig" npm run dev
+```
+
+If your cluster was created with another name, run `kind get clusters` and use that name after `--name`.
 
 ### 3. In-cluster Headlamp instead
 

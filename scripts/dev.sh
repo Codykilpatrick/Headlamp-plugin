@@ -50,6 +50,14 @@ if [[ -n "${HEADLAMP_DEV_KUBECONFIG:-}" ]]; then
 else
   DOCKER_RUN_ARGS+=( -v "$HOME/.kube:/headlamp/host.dot-kube:ro" )
   HEADLAMP_KUBECONFIG_IN_CONTAINER="/headlamp/host.dot-kube/config"
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    echo "" >&2
+    echo "==> NOTE (macOS): Default kubeconfig usually points at 127.0.0.1. Inside Docker that is NOT your Kind API — you will see Bad Gateway." >&2
+    echo "    Fix: use Kind's internal kubeconfig + the kind network, e.g." >&2
+    echo "    kind get kubeconfig --internal --name <cluster> > kind-internal.kubeconfig" >&2
+    echo "    HEADLAMP_DOCKER_NETWORK=kind HEADLAMP_DEV_KUBECONFIG=\"\$PWD/kind-internal.kubeconfig\" $0" >&2
+    echo "" >&2
+  fi
 fi
 DOCKER_RUN_ARGS+=( -v "$REPO_ROOT/dist:/headlamp/plugins/$PLUGIN_NAME:ro" )
 
