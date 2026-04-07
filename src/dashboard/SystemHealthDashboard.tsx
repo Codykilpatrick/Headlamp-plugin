@@ -68,6 +68,48 @@ function worstStatus(statuses: SystemStatus[]): SystemStatus {
   return 'Running';
 }
 
+function workloadKindCounts(workloads: any[]): { deployment: number; statefulSet: number } {
+  let deployment = 0;
+  let statefulSet = 0;
+  for (const w of workloads) {
+    if (w?.kind === 'StatefulSet') statefulSet++;
+    else deployment++;
+  }
+  return { deployment, statefulSet };
+}
+
+/** Sailor-facing line, e.g. "2 Deployments, 1 StatefulSet". */
+function formatKindSummary(c: { deployment: number; statefulSet: number }): string {
+  const parts: string[] = [];
+  if (c.deployment > 0) parts.push(`${c.deployment} Deployment${c.deployment !== 1 ? 's' : ''}`);
+  if (c.statefulSet > 0) parts.push(`${c.statefulSet} StatefulSet${c.statefulSet !== 1 ? 's' : ''}`);
+  return parts.length ? parts.join(', ') : 'No workloads';
+}
+
+function workloadNamePreview(workloads: any[], max = 3): string {
+  const names = workloads.map(w => w?.metadata?.name).filter(Boolean) as string[];
+  if (names.length === 0) return '';
+  if (names.length <= max) return names.join(', ');
+  return `${names.slice(0, max).join(', ')} +${names.length - max} more`;
+}
+
+/** Short age from metadata.creationTimestamp (kubectl-style shorthand). */
+function formatResourceAge(iso?: string): string {
+  if (!iso) return '';
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return '';
+  const sec = Math.max(0, Math.floor((Date.now() - t) / 1000));
+  if (sec < 60) return `${sec}s`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m`;
+  const h = Math.floor(min / 60);
+  if (h < 48) return `${h}h`;
+  const d = Math.floor(h / 24);
+  if (d < 365) return `${d}d`;
+  const y = Math.floor(d / 365);
+  return `${y}y+`;
+}
+
 /** Short, demo-friendly status labels (chips + clipboard). */
 const STATUS_LABEL: Record<SystemStatus, string> = {
   Running: 'All good',
@@ -118,7 +160,11 @@ function buildHealthSummaryText(systems: SystemSummary[]): string {
   }
   const lines = systems.map(s => {
     const label = STATUS_LABEL[s.status];
-    return `- ${s.systemName}: ${label} (${s.readyCount}/${s.totalCount} components ready)`;
+    const nsNote = s.systemName !== s.namespace ? ` [namespace: ${s.namespace}]` : '';
+    const kinds = formatKindSummary(workloadKindCounts(s.workloads));
+    const preview = workloadNamePreview(s.workloads);
+    const namesNote = preview ? ` — ${preview}` : '';
+    return `- ${s.systemName}${nsNote}: ${label} (${s.readyCount}/${s.totalCount} ready) — ${kinds}${namesNote}`;
   });
   return [...header, ...lines].join('\n');
 }
@@ -213,6 +259,9 @@ export function SystemHealthDashboard() {
   const { total, allGood, needsAttention } = summarizeSystems(systems);
   const allVisibleHidden =
     namespacesWithWorkloads > 0 && systems.length === 0;
+  const clusterWorkloadCount = systems.reduce((sum, s) => sum + s.workloads.length, 0);
+  const clusterReady = systems.reduce((sum, s) => sum + s.readyCount, 0);
+  const clusterDesired = systems.reduce((sum, s) => sum + s.totalCount, 0);
 
   async function handleCopySummary() {
     const text = buildHealthSummaryText(systems);
@@ -242,17 +291,24 @@ export function SystemHealthDashboard() {
             settings; switch Sailor / Admin from the top bar.
           </Typography>
           {systems.length > 0 && (
-            <Stack direction="row" flexWrap="wrap" useFlexGap spacing={1} sx={{ mt: 0.5 }}>
-              <Chip label={`${total} ${total === 1 ? 'system' : 'systems'}`} size="small" variant="outlined" />
-              <Chip label={`${allGood} all good`} size="small" color="success" variant="outlined" />
-              {needsAttention > 0 && (
-                <Chip
-                  label={`${needsAttention} ${needsAttention === 1 ? 'needs' : 'need'} attention`}
-                  size="small"
-                  color="warning"
-                  variant="outlined"
-                />
-              )}
+            <Stack spacing={1} sx={{ mt: 0.5 }}>
+              <Stack direction="row" flexWrap="wrap" useFlexGap spacing={1}>
+                <Chip label={`${total} ${total === 1 ? 'system' : 'systems'}`} size="small" variant="outlined" />
+                <Chip label={`${allGood} all good`} size="small" color="success" variant="outlined" />
+                {needsAttention > 0 && (
+                  <Chip
+                    label={`${needsAttention} ${needsAttention === 1 ? 'needs' : 'need'} attention`}
+                    size="small"
+                    color="warning"
+                    variant="outlined"
+                  />
+                )}
+              </Stack>
+              <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 640 }}>
+                Cluster-wide: {clusterWorkloadCount} workload{clusterWorkloadCount !== 1 ? 's' : ''} ·{' '}
+                {clusterReady} / {clusterDesired} components ready (Deployments and StatefulSets in visible
+                namespaces).
+              </Typography>
             </Stack>
           )}
         </Box>
@@ -313,7 +369,9 @@ export function SystemHealthDashboard() {
             location.pathname
           );
           const parts = sys.workloads?.length ?? 0;
-          const label = `${sys.systemName}, ${STATUS_LABEL[sys.status]}, ${sys.readyCount} of ${sys.totalCount} components ready, open workload list`;
+          const kindSummary = formatKindSummary(workloadKindCounts(sys.workloads));
+          const namesPreview = workloadNamePreview(sys.workloads);
+          const label = `${sys.systemName}, ${STATUS_LABEL[sys.status]}, ${sys.readyCount} of ${sys.totalCount} components ready, ${kindSummary}, open workload list`;
           return (
             <Box
               key={sys.namespace}
@@ -349,6 +407,19 @@ export function SystemHealthDashboard() {
               <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500 }}>
                 {sys.readyCount} / {sys.totalCount} components ready
               </Typography>
+              {sys.systemName !== sys.namespace && (
+                <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                  Kubernetes namespace: {sys.namespace}
+                </Typography>
+              )}
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                {kindSummary}
+              </Typography>
+              {namesPreview && (
+                <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.25 }}>
+                  {namesPreview}
+                </Typography>
+              )}
               <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.75 }}>
                 {parts} workload{parts !== 1 ? 's' : ''} · View list
               </Typography>
@@ -405,6 +476,11 @@ export function SystemDrillDown() {
     .filter(w => !isNamespaceHiddenFromHealth(w?.metadata?.namespace ?? 'default', hiddenNs))
     .sort((a, b) => (a?.metadata?.name ?? '').localeCompare(b?.metadata?.name ?? ''));
   const workloadsOnlyHidden = rawSystemWorkloads.length > 0 && systemWorkloads.length === 0;
+  const uniqueNs = [
+    ...new Set(systemWorkloads.map(w => w?.metadata?.namespace).filter(Boolean) as string[]),
+  ].sort();
+  const aggReady = systemWorkloads.reduce((s, w) => s + (w?.status?.readyReplicas ?? 0), 0);
+  const aggDesired = systemWorkloads.reduce((s, w) => s + (w?.spec?.replicas ?? 1), 0);
 
   const backUrl = withClusterPrefix('/sailor-view/dashboard', location.pathname);
 
@@ -417,13 +493,29 @@ export function SystemDrillDown() {
       <Typography variant="h4" component="h1" gutterBottom sx={{ fontWeight: 700 }}>
         {decodedName}
       </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        {systemWorkloads.length === 0
-          ? workloadsOnlyHidden
+      {systemWorkloads.length === 0 ? (
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+          {workloadsOnlyHidden
             ? 'Workloads for this system are in a namespace hidden from System Health.'
-            : 'No workloads in this system.'
-          : `${systemWorkloads.length} part${systemWorkloads.length !== 1 ? 's' : ''} — open Headlamp from here for logs and actions.`}
-      </Typography>
+            : 'No workloads in this system.'}
+        </Typography>
+      ) : (
+        <Stack spacing={0.75} sx={{ mb: 3 }}>
+          <Typography variant="body2" color="text.secondary">
+            {uniqueNs.length === 1 && decodedName !== uniqueNs[0]
+              ? `Kubernetes namespace: ${uniqueNs[0]}`
+              : uniqueNs.length === 1
+                ? `Namespace: ${uniqueNs[0]}`
+                : `Kubernetes namespaces: ${uniqueNs.join(', ')}`}
+            {' · '}
+            {aggReady} / {aggDesired} components ready
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {systemWorkloads.length} workload{systemWorkloads.length !== 1 ? 's' : ''}. Use the cluster navigation in
+            Headlamp for logs and actions on each part.
+          </Typography>
+        </Stack>
+      )}
 
       {systemWorkloads.length === 0 && (
         <Typography variant="body2" color="text.secondary">
@@ -440,6 +532,8 @@ export function SystemDrillDown() {
           const status = replicaWorkloadStatus(w);
           const ready = w?.status?.readyReplicas ?? 0;
           const desired = w?.spec?.replicas ?? 1;
+          const created = w?.metadata?.creationTimestamp as string | undefined;
+          const age = formatResourceAge(created);
           const key = `${kind}-${w?.metadata?.uid ?? name}`;
           return (
             <Box
@@ -462,6 +556,7 @@ export function SystemDrillDown() {
                 </Typography>
                 <Typography variant="caption" color="text.secondary" display="block">
                   {kind}
+                  {age ? ` · age ${age}` : ''}
                 </Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
                   {ready} / {desired} ready
