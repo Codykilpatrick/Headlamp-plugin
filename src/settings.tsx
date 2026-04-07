@@ -85,7 +85,13 @@ export function SettingsPage({ data, onDataChange }: SettingsProps) {
 
       {/* ── View Mode ─────────────────────────────────────────────────────── */}
       <Section title="View Mode">
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+          Use <strong>Save</strong> at the bottom. View mode and the feature toggles that affect the
+          sidebar or hidden routes trigger a quick reload so Headlamp picks them up; namespace
+          mappings do not.
+        </Typography>
         <RadioGroup
+          name="sailor-view-mode"
           value={settings.viewMode}
           onChange={e => update({ viewMode: e.target.value as 'sailor' | 'admin' })}
         >

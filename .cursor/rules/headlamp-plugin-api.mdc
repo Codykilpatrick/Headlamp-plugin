@@ -1,0 +1,24 @@
+---
+description: Headlamp plugin APIs — sidebar filters, names vs labels, where to look in upstream
+alwaysApply: true
+---
+
+# Headlamp plugin (this repo)
+
+Full reference: [docs/HEADLAMP_PLUGIN_API.md](docs/HEADLAMP_PLUGIN_API.md). Plugin settings are stored in Redux `pluginConfigs[pluginName]` and localStorage key `pluginConfigs` — not a custom `headlamp-plugin-data-*` key; use `src/settingsStore.ts` when reading settings outside React.
+
+## Sidebar (`registerSidebarEntryFilter`)
+
+- Match on **`entry.name`**, not **`entry.label`** (labels are translated UI text).
+- This project lowercases `name` before matching hide sets — entries in sets must be **lowercase** (e.g. `'security'`, not `'Security'`).
+- **Label → `name` mismatches:** “Configuration” section → **`config`**. “Security” → **`security`**. Whole “Gateway (beta)” block → **`gatewayapi`**.
+- Returning **`null`** removes that row; for a **parent** row, the **entire subtree** is removed (no need to list every child).
+- Default tree lives in `node_modules/@kinvolk/headlamp-plugin/lib/components/Sidebar/useSidebarItems.js` — check there after upgrading the package.
+
+## Routes
+
+- `registerRouteFilter` is separate from sidebar filters; hide both if you want no navigation and no sidebar entry.
+
+## Other registrations used here
+
+- `registerSidebarEntry`, `registerRoute`, `registerResourceTableColumnsProcessor`, `registerDetailsViewSection`, `registerPluginSettings` — see `src/index.tsx` and the doc above.

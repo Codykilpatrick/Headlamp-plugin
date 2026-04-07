@@ -8,6 +8,8 @@ A [Headlamp](https://headlamp.dev) plugin that provides a plain-language Kuberne
 - Guided troubleshooting panel with human-readable diagnostics
 - Hides advanced Kubernetes complexity by default
 
+**Plugin / Headlamp API (for contributors):** see [docs/HEADLAMP_PLUGIN_API.md](docs/HEADLAMP_PLUGIN_API.md) — sidebar `name` vs `label`, filters, and where to look in Headlamp’s sources when things change.
+
 ---
 
 ## Local development (desktop Headlamp)

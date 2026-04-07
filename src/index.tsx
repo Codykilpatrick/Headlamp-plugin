@@ -7,8 +7,10 @@ import {
   registerRouteFilter,
   registerPluginSettings,
 } from '@kinvolk/headlamp-plugin/lib';
+import store from '@kinvolk/headlamp-plugin/lib/redux/stores/store';
 
 import React from 'react';
+import { getFilterDrivingSettingsSignature } from './settingsStore';
 import { SettingsPage } from './settings';
 import { SystemHealthDashboard, SystemDrillDown } from './dashboard/SystemHealthDashboard';
 import { makeTerminologyFilters } from './terminology';
@@ -55,3 +57,14 @@ registerDetailsViewSection(TroubleshootingSection);
 const { routeFilter, sidebarFilter: complexitySidebarFilter } = makeComplexityFilters();
 registerRouteFilter(routeFilter);
 registerSidebarEntryFilter(complexitySidebarFilter);
+
+// Headlamp’s sidebar tree is memoized without depending on `pluginConfigs`, so filters keep
+// seeing stale results after Save until something else re-runs the memo. Reload when saved
+// plugin settings change so view mode and toggles apply immediately.
+let lastFilterSettingsSig = getFilterDrivingSettingsSignature();
+store.subscribe(() => {
+  const next = getFilterDrivingSettingsSignature();
+  if (next === lastFilterSettingsSig) return;
+  lastFilterSettingsSig = next;
+  window.location.reload();
+});
