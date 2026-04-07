@@ -17,8 +17,6 @@ const SIDEBAR_LABEL_MAP: Record<string, string> = {
   Pods: 'Processes',
   deployments: 'Deployments',
   Deployments: 'Deployments',
-  network: 'Connections',
-  Network: 'Connections',
   services: 'Services',
   Services: 'Services',
   configmaps: 'Configuration',
@@ -27,7 +25,6 @@ const SIDEBAR_LABEL_MAP: Record<string, string> = {
   Secrets: 'Secrets',
   storage: 'Storage',
   Storage: 'Storage',
-  Map: 'Fleet Map'
 };
 
 // Sidebar entries to hide entirely in sailor mode (by name/id, lowercase)
@@ -50,6 +47,7 @@ const SIDEBAR_HIDE_IN_SAILOR = new Set([
   'Gateways',
   'GatewayClasses',
   'GatewayPolicies',
+  'Security'
 ]);
 
 export function makeTerminologyFilters() {
