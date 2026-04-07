@@ -34,6 +34,8 @@ kind create cluster --name sailor-view
 kubectl get nodes
 ```
 
+**Optional demo workload:** install a small **Redpanda** (Kafka-style) broker so System Health shows a real app, not a placeholder pod — see [examples/demo-cluster/README.md](examples/demo-cluster/README.md). Map namespace `demo-ship-bus` → e.g. `Ship data bus` in Sailor View settings.
+
 ### 2. Run dev against that cluster
 
 **Linux:** Often this is enough (host kubeconfig usually works from the Headlamp container):

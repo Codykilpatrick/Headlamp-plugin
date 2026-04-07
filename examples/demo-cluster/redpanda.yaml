@@ -1,0 +1,73 @@
+# Single-node Redpanda (Kafka-compatible) — reads like a real shipboard data backbone,
+# not a toy nginx pod. Uses dev-container mode (lightweight, fine for Kind / demos).
+#
+# Advertised address matches the StatefulSet pod DNS name on the headless service.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redpanda
+  labels:
+    app: redpanda
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: redpanda
+  ports:
+    - name: kafka
+      port: 9092
+      targetPort: 9092
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redpanda
+  labels:
+    app: redpanda
+spec:
+  serviceName: redpanda
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redpanda
+  template:
+    metadata:
+      labels:
+        app: redpanda
+    spec:
+      containers:
+        - name: redpanda
+          image: docker.redpanda.com/redpandadata/redpanda:v24.2.4
+          args:
+            - redpanda
+            - start
+            - --mode
+            - dev-container
+            - --smp
+            - "1"
+            - --default-log-level=warn
+            - --kafka-addr
+            - internal://0.0.0.0:9092
+            - --advertise-kafka-addr
+            - internal://redpanda-0.redpanda.demo-ship-bus.svc.cluster.local:9092
+          ports:
+            - name: kafka
+              containerPort: 9092
+          resources:
+            requests:
+              cpu: 100m
+              memory: 384Mi
+            limits:
+              cpu: "1"
+              memory: 768Mi
+          readinessProbe:
+            tcpSocket:
+              port: 9092
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 9092
+            initialDelaySeconds: 45
+            periodSeconds: 20

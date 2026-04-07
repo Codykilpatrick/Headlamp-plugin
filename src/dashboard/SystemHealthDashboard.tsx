@@ -19,18 +19,35 @@ interface SystemSummary {
   status: SystemStatus;
   readyCount: number;
   totalCount: number;
-  deployments: any[];
+  /** Deployments and StatefulSets (same replica / readyReplicas shape). */
+  workloads: any[];
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function deploymentStatus(dep: any): SystemStatus {
-  const spec = dep?.spec?.replicas ?? 1;
-  const ready = dep?.status?.readyReplicas ?? 0;
+/** Deployment or StatefulSet (and similar workloads with spec.replicas / status.readyReplicas). */
+function replicaWorkloadStatus(w: any): SystemStatus {
+  const spec = w?.spec?.replicas ?? 1;
+  const ready = w?.status?.readyReplicas ?? 0;
   if (spec === 0) return 'Unknown';
   if (ready === spec) return 'Running';
   if (ready > 0) return 'Degraded';
   return 'Offline';
+}
+
+function groupWorkloadsByNamespace(deployments: any[] | null, statefulSets: any[] | null): Record<string, any[]> {
+  const grouped: Record<string, any[]> = {};
+  for (const dep of deployments || []) {
+    const ns: string = dep?.metadata?.namespace ?? 'default';
+    if (!grouped[ns]) grouped[ns] = [];
+    grouped[ns].push(dep);
+  }
+  for (const sts of statefulSets || []) {
+    const ns: string = sts?.metadata?.namespace ?? 'default';
+    if (!grouped[ns]) grouped[ns] = [];
+    grouped[ns].push(sts);
+  }
+  return grouped;
 }
 
 function worstStatus(statuses: SystemStatus[]): SystemStatus {
@@ -86,7 +103,7 @@ function buildHealthSummaryText(systems: SystemSummary[]): string {
   const when = new Date().toISOString();
   const header = ['Sailor View — System Health summary', `Generated: ${when} (UTC)`, ''];
   if (systems.length === 0) {
-    return [...header, 'No deployments / systems listed in this cluster.'].join('\n');
+    return [...header, 'No systems with workloads in this cluster.'].join('\n');
   }
   const lines = systems.map(s => {
     const label = STATUS_LABEL[s.status];
@@ -125,25 +142,27 @@ async function copyTextToClipboard(text: string): Promise<boolean> {
 export function SystemHealthDashboard() {
   const theme = useTheme();
   const [deployments, deployError] = K8s.ResourceClasses.Deployment.useList();
+  const [statefulSets, stsError] = K8s.ResourceClasses.StatefulSet.useList();
   const history = useHistory();
   const location = useLocation();
   const settings = getSettings();
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
 
-  if (deployError) {
+  const loadError = deployError || stsError;
+  if (loadError) {
     return (
       <Box sx={{ p: 3 }}>
         <Typography color="error" component="span" fontWeight={600}>
-          Could not load deployments:
+          Could not load workloads:
         </Typography>{' '}
         <Typography color="error" component="span" variant="body2">
-          {String(deployError)}
+          {String(loadError)}
         </Typography>
       </Box>
     );
   }
 
-  if (!deployments) {
+  if (deployments == null || statefulSets == null) {
     return (
       <Box sx={{ p: 3 }}>
         <Typography color="text.secondary">Loading systems…</Typography>
@@ -156,24 +175,19 @@ export function SystemHealthDashboard() {
     if (m.namespace) nsMap[m.namespace] = m.systemName || m.namespace;
   }
 
-  const grouped: Record<string, any[]> = {};
-  for (const dep of deployments) {
-    const ns: string = dep?.metadata?.namespace ?? 'default';
-    if (!grouped[ns]) grouped[ns] = [];
-    grouped[ns].push(dep);
-  }
+  const grouped = groupWorkloadsByNamespace(deployments, statefulSets);
 
-  const systems: SystemSummary[] = Object.entries(grouped).map(([ns, deps]) => {
-    const statuses = deps.map(deploymentStatus);
-    const readyCount = deps.reduce((sum, d) => sum + (d?.status?.readyReplicas ?? 0), 0);
-    const totalCount = deps.reduce((sum, d) => sum + (d?.spec?.replicas ?? 1), 0);
+  const systems: SystemSummary[] = Object.entries(grouped).map(([ns, workloads]) => {
+    const statuses = workloads.map(replicaWorkloadStatus);
+    const readyCount = workloads.reduce((sum, w) => sum + (w?.status?.readyReplicas ?? 0), 0);
+    const totalCount = workloads.reduce((sum, w) => sum + (w?.spec?.replicas ?? 1), 0);
     return {
       systemName: nsMap[ns] || ns,
       namespace: ns,
       status: worstStatus(statuses),
       readyCount,
       totalCount,
-      deployments: deps,
+      workloads,
     };
   });
 
@@ -294,18 +308,20 @@ export function SystemDrillDown() {
   const { systemName } = useParams<{ systemName: string }>();
   const decodedName = decodeURIComponent(systemName);
   const [deployments, deployError] = K8s.ResourceClasses.Deployment.useList();
+  const [statefulSets, stsError] = K8s.ResourceClasses.StatefulSet.useList();
   const history = useHistory();
   const location = useLocation();
   const settings = getSettings();
 
-  if (deployError) {
+  const loadError = deployError || stsError;
+  if (loadError) {
     return (
       <Box sx={{ p: 3 }}>
-        <Typography color="error">Error: {String(deployError)}</Typography>
+        <Typography color="error">Error: {String(loadError)}</Typography>
       </Box>
     );
   }
-  if (!deployments) {
+  if (deployments == null || statefulSets == null) {
     return (
       <Box sx={{ p: 3 }}>
         <Typography color="text.secondary">Loading…</Typography>
@@ -318,11 +334,12 @@ export function SystemDrillDown() {
     if (m.namespace) nsMap[m.namespace] = m.systemName || m.namespace;
   }
 
-  const systemDeps = deployments.filter(dep => {
-    const ns: string = dep?.metadata?.namespace ?? 'default';
-    const mapped = nsMap[ns] || ns;
-    return mapped === decodedName;
-  });
+  const matchesSystem = (ns: string) => (nsMap[ns] || ns) === decodedName;
+
+  const systemWorkloads = [
+    ...deployments.filter(dep => matchesSystem(dep?.metadata?.namespace ?? 'default')),
+    ...statefulSets.filter(sts => matchesSystem(sts?.metadata?.namespace ?? 'default')),
+  ].sort((a, b) => (a?.metadata?.name ?? '').localeCompare(b?.metadata?.name ?? ''));
 
   const backUrl = withClusterPrefix('/sailor-view/dashboard', location.pathname);
 
@@ -336,27 +353,28 @@ export function SystemDrillDown() {
         {decodedName}
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        {systemDeps.length === 0
+        {systemWorkloads.length === 0
           ? 'No workloads in this system.'
-          : `${systemDeps.length} part${systemDeps.length !== 1 ? 's' : ''} — open Headlamp from here for logs and actions.`}
+          : `${systemWorkloads.length} part${systemWorkloads.length !== 1 ? 's' : ''} — open Headlamp from here for logs and actions.`}
       </Typography>
 
-      {systemDeps.length === 0 && (
+      {systemWorkloads.length === 0 && (
         <Typography variant="body2" color="text.secondary">
           Check the namespace mapping or cluster workloads.
         </Typography>
       )}
 
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-        {systemDeps.map(dep => {
-          const name: string = dep?.metadata?.name ?? 'unknown';
-          const ns: string = dep?.metadata?.namespace ?? 'default';
-          const status = deploymentStatus(dep);
-          const ready = dep?.status?.readyReplicas ?? 0;
-          const desired = dep?.spec?.replicas ?? 1;
+        {systemWorkloads.map(w => {
+          const name: string = w?.metadata?.name ?? 'unknown';
+          const kind: string = w?.kind ?? 'Workload';
+          const status = replicaWorkloadStatus(w);
+          const ready = w?.status?.readyReplicas ?? 0;
+          const desired = w?.spec?.replicas ?? 1;
+          const key = `${kind}-${w?.metadata?.uid ?? name}`;
           return (
             <Box
-              key={name}
+              key={key}
               sx={{
                 border: 1,
                 borderColor: statusBorderColor(theme, status),
@@ -372,6 +390,9 @@ export function SystemDrillDown() {
               <Box>
                 <Typography variant="subtitle1" fontWeight={600} color="text.primary">
                   {name}
+                </Typography>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  {kind}
                 </Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
                   {ready} / {desired} ready
