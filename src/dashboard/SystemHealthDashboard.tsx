@@ -2,13 +2,15 @@ import React, { useState } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
+import CircularProgress from '@mui/material/CircularProgress';
+import Paper from '@mui/material/Paper';
+import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { alpha, useTheme, type Theme } from '@mui/material/styles';
 import { K8s } from '@kinvolk/headlamp-plugin/lib';
 import { useHistory, useLocation, useParams } from 'react-router-dom';
 import { withClusterPrefix } from '../lib/clusterPaths';
 import { getSettings } from '../settingsStore';
-import { ViewModeToggle } from '../ViewModeToggle';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -160,7 +162,7 @@ export function SystemHealthDashboard() {
   const loadError = deployError || stsError;
   if (loadError) {
     return (
-      <Box sx={{ p: 3 }}>
+      <Box sx={{ p: { xs: 2, sm: 3 }, maxWidth: 1400, mx: 'auto' }}>
         <Typography color="error" component="span" fontWeight={600}>
           Could not load workloads:
         </Typography>{' '}
@@ -173,7 +175,8 @@ export function SystemHealthDashboard() {
 
   if (deployments == null || statefulSets == null) {
     return (
-      <Box sx={{ p: 3 }}>
+      <Box sx={{ p: { xs: 2, sm: 3 }, maxWidth: 1400, mx: 'auto', display: 'flex', alignItems: 'center', gap: 2 }}>
+        <CircularProgress size={22} thickness={5} aria-hidden />
         <Typography color="text.secondary">Loading systems…</Typography>
       </Box>
     );
@@ -185,6 +188,7 @@ export function SystemHealthDashboard() {
   }
 
   const grouped = groupWorkloadsByNamespace(deployments, statefulSets);
+  const namespacesWithWorkloads = Object.keys(grouped).length;
   const hiddenNs = healthHiddenNamespaceSet(settings.systemHealthHiddenNamespaces);
 
   const systems: SystemSummary[] = Object.entries(grouped)
@@ -207,6 +211,8 @@ export function SystemHealthDashboard() {
   systems.sort((a, b) => ORDER[a.status] - ORDER[b.status]);
 
   const { total, allGood, needsAttention } = summarizeSystems(systems);
+  const allVisibleHidden =
+    namespacesWithWorkloads > 0 && systems.length === 0;
 
   async function handleCopySummary() {
     const text = buildHealthSummaryText(systems);
@@ -216,37 +222,43 @@ export function SystemHealthDashboard() {
   }
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2 }}>
+    <Box sx={{ p: { xs: 2, sm: 3 }, maxWidth: 1400, mx: 'auto' }}>
+      <Box
+        sx={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+          gap: 2,
+          mb: 1,
+        }}
+      >
         <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Typography variant="h4" component="h1" gutterBottom>
+          <Typography variant="h4" component="h1" gutterBottom sx={{ fontWeight: 700 }}>
             System Health
           </Typography>
-          <Typography variant="body1" color="text.secondary" sx={{ maxWidth: 560, mb: 1.5 }}>
-            Each card is a system (namespace names are replaced by the labels you set in Sailor View settings).
+          <Typography variant="body1" color="text.secondary" sx={{ maxWidth: 600, mb: 1.5 }}>
+            One card per namespace that has a Deployment or StatefulSet. Friendly names come from Sailor View
+            settings; switch Sailor / Admin from the top bar.
           </Typography>
           {systems.length > 0 && (
-            <Typography variant="subtitle1" fontWeight={600} color="text.primary">
-              {total} {total === 1 ? 'system' : 'systems'}
-              {' · '}
-              {allGood} all good
+            <Stack direction="row" flexWrap="wrap" useFlexGap spacing={1} sx={{ mt: 0.5 }}>
+              <Chip label={`${total} ${total === 1 ? 'system' : 'systems'}`} size="small" variant="outlined" />
+              <Chip label={`${allGood} all good`} size="small" color="success" variant="outlined" />
               {needsAttention > 0 && (
-                <>
-                  {' · '}
-                  <Box component="span" sx={{ color: 'warning.main' }}>
-                    {needsAttention} {needsAttention === 1 ? 'needs' : 'need'} attention
-                  </Box>
-                </>
+                <Chip
+                  label={`${needsAttention} ${needsAttention === 1 ? 'needs' : 'need'} attention`}
+                  size="small"
+                  color="warning"
+                  variant="outlined"
+                />
               )}
-            </Typography>
+            </Stack>
           )}
         </Box>
-        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1, flexShrink: 0 }}>
-          <ViewModeToggle variant="page" />
-          <Button variant="outlined" size="medium" onClick={() => handleCopySummary()}>
-            Copy summary
-          </Button>
-        </Box>
+        <Button variant="outlined" size="medium" onClick={() => handleCopySummary()} sx={{ flexShrink: 0, mt: 0.5 }}>
+          Copy summary
+        </Button>
       </Box>
 
       {copyFeedback && (
@@ -256,17 +268,43 @@ export function SystemHealthDashboard() {
       )}
 
       {systems.length === 0 && (
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 3 }}>
-          Nothing to show yet — add namespace → system name mappings under Settings → Plugins → Sailor View.
-        </Typography>
+        <Paper
+          variant="outlined"
+          sx={{
+            mt: 3,
+            p: 2.5,
+            maxWidth: 640,
+            bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.06 : 0.03),
+            borderColor: 'divider',
+          }}
+        >
+          <Typography variant="subtitle1" fontWeight={600} color="text.primary" gutterBottom>
+            {allVisibleHidden ? 'Workloads are only in hidden namespaces' : 'No systems to show yet'}
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: allVisibleHidden ? 1.5 : 0 }}>
+            {allVisibleHidden ? (
+              <>
+                Every namespace that has a Deployment or StatefulSet is listed under{' '}
+                <strong>System Health — Hidden Namespaces</strong> in Settings → Plugins → Sailor View. Remove one
+                from that list to see it here, or deploy workloads in another namespace.
+              </>
+            ) : (
+              <>
+                There are no Deployments or StatefulSets in this cluster (or Headlamp cannot list them). Deploy an app
+                to see a card here. Use Settings → Plugins → Sailor View to rename namespaces or adjust hidden
+                namespaces.
+              </>
+            )}
+          </Typography>
+        </Paper>
       )}
 
       <Box
         sx={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(272px, 1fr))',
           gap: 2,
-          mt: 3,
+          mt: systems.length === 0 ? 2 : 3,
         }}
       >
         {systems.map(sys => {
@@ -274,12 +312,15 @@ export function SystemHealthDashboard() {
             `/sailor-view/dashboard/${encodeURIComponent(sys.systemName)}`,
             location.pathname
           );
+          const parts = sys.workloads?.length ?? 0;
+          const label = `${sys.systemName}, ${STATUS_LABEL[sys.status]}, ${sys.readyCount} of ${sys.totalCount} components ready, open workload list`;
           return (
             <Box
               key={sys.namespace}
               onClick={() => history.push(drillUrl)}
               role="button"
               tabIndex={0}
+              aria-label={label}
               onKeyDown={e => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
@@ -294,19 +335,22 @@ export function SystemHealthDashboard() {
                 cursor: 'pointer',
                 bgcolor: statusSurfaceColor(theme, sys.status),
                 boxShadow: theme.shadows[1],
-                transition: theme.transitions.create('box-shadow', { duration: 150 }),
-                '&:hover': { boxShadow: theme.shadows[4] },
+                transition: theme.transitions.create(['box-shadow', 'transform'], { duration: 150 }),
+                '&:hover': { boxShadow: theme.shadows[4], transform: 'translateY(-1px)' },
                 '&:focus-visible': { outline: `2px solid ${theme.palette.primary.main}`, outlineOffset: 2 },
               }}
             >
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 1, mb: 1 }}>
-                <Typography variant="h5" component="div" color="text.primary" sx={{ fontWeight: 700, lineHeight: 1.25 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 1, mb: 1.25 }}>
+                <Typography variant="h6" component="div" color="text.primary" sx={{ fontWeight: 700, lineHeight: 1.3 }}>
                   {sys.systemName}
                 </Typography>
                 <StatusBadge status={sys.status} />
               </Box>
-              <Typography variant="body2" color="text.secondary">
-                {sys.readyCount} / {sys.totalCount} ready
+              <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500 }}>
+                {sys.readyCount} / {sys.totalCount} components ready
+              </Typography>
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.75 }}>
+                {parts} workload{parts !== 1 ? 's' : ''} · View list
               </Typography>
             </Box>
           );
@@ -331,14 +375,15 @@ export function SystemDrillDown() {
   const loadError = deployError || stsError;
   if (loadError) {
     return (
-      <Box sx={{ p: 3 }}>
+      <Box sx={{ p: { xs: 2, sm: 3 }, maxWidth: 1400, mx: 'auto' }}>
         <Typography color="error">Error: {String(loadError)}</Typography>
       </Box>
     );
   }
   if (deployments == null || statefulSets == null) {
     return (
-      <Box sx={{ p: 3 }}>
+      <Box sx={{ p: { xs: 2, sm: 3 }, maxWidth: 1400, mx: 'auto', display: 'flex', alignItems: 'center', gap: 2 }}>
+        <CircularProgress size={22} thickness={5} aria-hidden />
         <Typography color="text.secondary">Loading…</Typography>
       </Box>
     );
@@ -364,12 +409,12 @@ export function SystemDrillDown() {
   const backUrl = withClusterPrefix('/sailor-view/dashboard', location.pathname);
 
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ p: { xs: 2, sm: 3 }, maxWidth: 1400, mx: 'auto' }}>
       <Button variant="text" size="small" onClick={() => history.push(backUrl)} sx={{ mb: 2.5, px: 0 }}>
         ← Back to System Health
       </Button>
 
-      <Typography variant="h4" component="h1" gutterBottom>
+      <Typography variant="h4" component="h1" gutterBottom sx={{ fontWeight: 700 }}>
         {decodedName}
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
