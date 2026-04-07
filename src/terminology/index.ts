@@ -27,8 +27,17 @@ const SIDEBAR_LABEL_MAP: Record<string, string> = {
   Storage: 'Storage',
 };
 
-// Sidebar entries to hide entirely in sailor mode (by name/id, lowercase)
+// Sidebar entries to hide entirely in sailor mode. Keys are entry.name lowercased
+// (Headlamp passes mixed-case names like "Pods" — we normalize with .toLowerCase()).
+//
+// Top-level sections (hide the whole group + children): security, gatewayapi, workloads,
+// storage, network, config, cluster, map, crds, etc. — match entry.name (not the label:
+// the "Configuration" group is name "config", not "configuration").
 const SIDEBAR_HIDE_IN_SAILOR = new Set([
+  // Whole "Security" sidebar group (Service Accounts, Roles, Role Bindings)
+  'security',
+  // Whole "Configuration" sidebar group (Config Maps, Secrets, HPAs, …) — Headlamp name is `config`
+  'config',
   'replicasets',
   'daemonsets',
   'statefulsets',
@@ -43,11 +52,9 @@ const SIDEBAR_HIDE_IN_SAILOR = new Set([
   'resourcequotas',
   'poddisruptionbudgets',
   'horizontalpodautoscalers',
-  'Security',
-  'Gateways',
-  'GatewayClasses',
-  'GatewayPolicies',
-  'Security'
+  // Gateway API (beta) — parent name is gatewayapi; omit to hide only leaves instead
+  'gateways',
+  'gatewayclasses',
 ]);
 
 export function makeTerminologyFilters() {
