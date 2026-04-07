@@ -20,6 +20,9 @@ function mergeSettings(parsed: Partial<SailorViewSettings> | undefined | null): 
     ...DEFAULT_SETTINGS,
     ...parsed,
     hideRoutes: { ...DEFAULT_SETTINGS.hideRoutes, ...(parsed.hideRoutes ?? {}) },
+    systemHealthHiddenNamespaces: Array.isArray(parsed.systemHealthHiddenNamespaces)
+      ? parsed.systemHealthHiddenNamespaces
+      : DEFAULT_SETTINGS.systemHealthHiddenNamespaces,
   };
 }
 

@@ -17,6 +17,8 @@ export interface NamespaceMapping {
 
 export interface SailorViewSettings {
   namespaceMappings: NamespaceMapping[];
+  /** Namespaces excluded from System Health cards (case-insensitive). Default includes `kube-system`. */
+  systemHealthHiddenNamespaces: string[];
   enableTerminology: boolean;
   enableTroubleshooting: boolean;
   enableComplexityHiding: boolean;
@@ -33,6 +35,7 @@ export interface SailorViewSettings {
 
 export const DEFAULT_SETTINGS: SailorViewSettings = {
   namespaceMappings: [],
+  systemHealthHiddenNamespaces: ['kube-system'],
   enableTerminology: true,
   enableTroubleshooting: true,
   enableComplexityHiding: true,
@@ -77,6 +80,22 @@ export function SettingsPage({ data, onDataChange }: SettingsProps) {
     update({ namespaceMappings: mappings });
   }
 
+  function addHiddenNs() {
+    update({ systemHealthHiddenNamespaces: [...settings.systemHealthHiddenNamespaces, ''] });
+  }
+
+  function removeHiddenNs(idx: number) {
+    update({
+      systemHealthHiddenNamespaces: settings.systemHealthHiddenNamespaces.filter((_, i) => i !== idx),
+    });
+  }
+
+  function updateHiddenNs(idx: number, value: string) {
+    const list = [...settings.systemHealthHiddenNamespaces];
+    list[idx] = value;
+    update({ systemHealthHiddenNamespaces: list });
+  }
+
   return (
     <Box sx={{ maxWidth: 700, p: 1 }}>
       <Typography variant="h5" gutterBottom>
@@ -88,7 +107,7 @@ export function SettingsPage({ data, onDataChange }: SettingsProps) {
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
           Use <strong>Save</strong> at the bottom. View mode and the feature toggles that affect the
           sidebar or hidden routes trigger a quick reload so Headlamp picks them up; namespace
-          mappings do not.
+          mappings and System Health hidden namespaces do not.
         </Typography>
         <RadioGroup
           name="sailor-view-mode"
@@ -153,6 +172,33 @@ export function SettingsPage({ data, onDataChange }: SettingsProps) {
         ))}
         <Button variant="outlined" size="small" onClick={addMapping} sx={{ mt: 1 }}>
           + Add Mapping
+        </Button>
+      </Section>
+
+      {/* ── System Health: hidden namespaces ──────────────────────────────── */}
+      <Section title="System Health — Hidden Namespaces">
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          These namespaces are omitted from the System Health grid (not renamed or removed elsewhere).
+          By default, <strong>kube-system</strong> is listed here so cluster add-ons do not appear as an
+          operator-facing system. Remove it from the list if you want that namespace on the dashboard.
+        </Typography>
+        {settings.systemHealthHiddenNamespaces.map((ns, i) => (
+          <Box key={i} sx={{ display: 'flex', gap: 1, mb: 1, alignItems: 'center' }}>
+            <TextField
+              size="small"
+              label="Namespace"
+              placeholder="e.g. kube-system"
+              value={ns}
+              onChange={e => updateHiddenNs(i, e.target.value)}
+              sx={{ flex: 1 }}
+            />
+            <IconButton size="small" onClick={() => removeHiddenNs(i)} aria-label="Remove hidden namespace">
+              ✕
+            </IconButton>
+          </Box>
+        ))}
+        <Button variant="outlined" size="small" onClick={addHiddenNs} sx={{ mt: 1 }}>
+          + Add Namespace to Hide
         </Button>
       </Section>
 

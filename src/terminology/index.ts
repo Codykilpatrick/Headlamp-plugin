@@ -83,9 +83,19 @@ export function makeTerminologyFilters() {
    * Column processor: called by Headlamp with the array of column definitions
    * for a resource table. We mutate headers and cell renderers.
    */
-  function columnProcessor({ columns }: { id: string; columns: any[] }): any[] {
+  function columnProcessor({ id, columns }: { id: string; columns: any[] }): any[] {
     const settings = getSettings();
     if (!settings.enableTerminology || settings.viewMode === 'admin') return columns;
+
+    // Workloads overview (mixed Deployments, StatefulSets, …): drop Kind — redundant noise for sailors.
+    let cols = columns;
+    if (id === 'headlamp-workloads') {
+      cols = cols.filter((col: any) => {
+        if (col === 'kind' || col === 'type') return false;
+        if (typeof col === 'object' && col != null && (col.id === 'kind' || col.id === 'type')) return false;
+        return true;
+      });
+    }
 
     // Namespace mapping for cell values
     const nsMap: Record<string, string> = {};
@@ -93,7 +103,7 @@ export function makeTerminologyFilters() {
       if (m.namespace) nsMap[m.namespace] = m.systemName || m.namespace;
     }
 
-    return columns.map(col => {
+    return cols.map(col => {
       const header: string = col?.label ?? col?.header ?? '';
 
       // Rename "Namespace" → "System"

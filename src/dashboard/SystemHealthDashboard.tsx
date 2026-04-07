@@ -35,6 +35,14 @@ function replicaWorkloadStatus(w: any): SystemStatus {
   return 'Offline';
 }
 
+function healthHiddenNamespaceSet(hidden: string[]): Set<string> {
+  return new Set(hidden.map(n => n.trim().toLowerCase()).filter(Boolean));
+}
+
+function isNamespaceHiddenFromHealth(ns: string, hidden: Set<string>): boolean {
+  return hidden.has((ns ?? '').trim().toLowerCase());
+}
+
 function groupWorkloadsByNamespace(deployments: any[] | null, statefulSets: any[] | null): Record<string, any[]> {
   const grouped: Record<string, any[]> = {};
   for (const dep of deployments || []) {
@@ -176,8 +184,11 @@ export function SystemHealthDashboard() {
   }
 
   const grouped = groupWorkloadsByNamespace(deployments, statefulSets);
+  const hiddenNs = healthHiddenNamespaceSet(settings.systemHealthHiddenNamespaces);
 
-  const systems: SystemSummary[] = Object.entries(grouped).map(([ns, workloads]) => {
+  const systems: SystemSummary[] = Object.entries(grouped)
+    .filter(([ns]) => !isNamespaceHiddenFromHealth(ns, hiddenNs))
+    .map(([ns, workloads]) => {
     const statuses = workloads.map(replicaWorkloadStatus);
     const readyCount = workloads.reduce((sum, w) => sum + (w?.status?.readyReplicas ?? 0), 0);
     const totalCount = workloads.reduce((sum, w) => sum + (w?.spec?.replicas ?? 1), 0);
@@ -189,7 +200,7 @@ export function SystemHealthDashboard() {
       totalCount,
       workloads,
     };
-  });
+    });
 
   const ORDER: Record<SystemStatus, number> = { Offline: 0, Degraded: 1, Unknown: 2, Running: 3 };
   systems.sort((a, b) => ORDER[a.status] - ORDER[b.status]);
@@ -336,10 +347,15 @@ export function SystemDrillDown() {
 
   const matchesSystem = (ns: string) => (nsMap[ns] || ns) === decodedName;
 
-  const systemWorkloads = [
+  const hiddenNs = healthHiddenNamespaceSet(settings.systemHealthHiddenNamespaces);
+  const rawSystemWorkloads = [
     ...deployments.filter(dep => matchesSystem(dep?.metadata?.namespace ?? 'default')),
     ...statefulSets.filter(sts => matchesSystem(sts?.metadata?.namespace ?? 'default')),
-  ].sort((a, b) => (a?.metadata?.name ?? '').localeCompare(b?.metadata?.name ?? ''));
+  ];
+  const systemWorkloads = rawSystemWorkloads
+    .filter(w => !isNamespaceHiddenFromHealth(w?.metadata?.namespace ?? 'default', hiddenNs))
+    .sort((a, b) => (a?.metadata?.name ?? '').localeCompare(b?.metadata?.name ?? ''));
+  const workloadsOnlyHidden = rawSystemWorkloads.length > 0 && systemWorkloads.length === 0;
 
   const backUrl = withClusterPrefix('/sailor-view/dashboard', location.pathname);
 
@@ -354,13 +370,17 @@ export function SystemDrillDown() {
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
         {systemWorkloads.length === 0
-          ? 'No workloads in this system.'
+          ? workloadsOnlyHidden
+            ? 'Workloads for this system are in a namespace hidden from System Health.'
+            : 'No workloads in this system.'
           : `${systemWorkloads.length} part${systemWorkloads.length !== 1 ? 's' : ''} — open Headlamp from here for logs and actions.`}
       </Typography>
 
       {systemWorkloads.length === 0 && (
         <Typography variant="body2" color="text.secondary">
-          Check the namespace mapping or cluster workloads.
+          {workloadsOnlyHidden
+            ? 'Remove that namespace from “System Health — Hidden Namespaces” in Sailor View settings if you need it here.'
+            : 'Check the namespace mapping or cluster workloads.'}
         </Typography>
       )}
 
