@@ -1,4 +1,14 @@
 import React from 'react';
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
+import Switch from '@mui/material/Switch';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import TextField from '@mui/material/TextField';
+import Button from '@mui/material/Button';
+import Divider from '@mui/material/Divider';
+import RadioGroup from '@mui/material/RadioGroup';
+import Radio from '@mui/material/Radio';
+import IconButton from '@mui/material/IconButton';
 
 export interface NamespaceMapping {
   namespace: string;
@@ -6,18 +16,11 @@ export interface NamespaceMapping {
 }
 
 export interface SailorViewSettings {
-  // Namespace → friendly system-name mappings
   namespaceMappings: NamespaceMapping[];
-
-  // Feature toggles
   enableTerminology: boolean;
   enableTroubleshooting: boolean;
   enableComplexityHiding: boolean;
-
-  // Mode: 'sailor' hides complexity; 'admin' shows everything
   viewMode: 'sailor' | 'admin';
-
-  // Complexity hiding — which route categories to suppress
   hideRoutes: {
     crds: boolean;
     clusterRoles: boolean;
@@ -44,7 +47,6 @@ export const DEFAULT_SETTINGS: SailorViewSettings = {
   },
 };
 
-// ── Headlamp passes data + onDataChange to the settings component ────────────
 interface SettingsProps {
   data: SailorViewSettings | null;
   onDataChange: (data: SailorViewSettings) => void;
@@ -75,117 +77,106 @@ export function SettingsPage({ data, onDataChange }: SettingsProps) {
     update({ namespaceMappings: mappings });
   }
 
-  const sectionStyle: React.CSSProperties = {
-    marginBottom: '24px',
-    padding: '16px',
-    border: '1px solid #e0e0e0',
-    borderRadius: '8px',
-    backgroundColor: '#fafafa',
-  };
-  const labelStyle: React.CSSProperties = { fontWeight: 600, fontSize: '15px', marginBottom: '12px', display: 'block' };
-  const rowStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' };
-  const inputStyle: React.CSSProperties = { padding: '6px 10px', border: '1px solid #ccc', borderRadius: '4px', fontSize: '14px', flex: 1 };
-  const btnStyle: React.CSSProperties = { padding: '6px 14px', border: '1px solid #ccc', borderRadius: '4px', cursor: 'pointer', fontSize: '13px' };
-  const checkRowStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' };
-
   return (
-    <div style={{ maxWidth: '700px', fontFamily: 'sans-serif', padding: '8px' }}>
-      <h2 style={{ marginBottom: '20px' }}>Sailor View Settings</h2>
+    <Box sx={{ maxWidth: 700, p: 1 }}>
+      <Typography variant="h5" gutterBottom>
+        Sailor View Settings
+      </Typography>
 
-      {/* ── View Mode ────────────────────────────────────────────────────────── */}
-      <div style={sectionStyle}>
-        <span style={labelStyle}>View Mode</span>
-        <div style={rowStyle}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
-            <input
-              type="radio"
-              name="viewMode"
-              value="sailor"
-              checked={settings.viewMode === 'sailor'}
-              onChange={() => update({ viewMode: 'sailor' })}
-            />
-            Sailor View — simplified, hides Kubernetes complexity
-          </label>
-        </div>
-        <div style={rowStyle}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
-            <input
-              type="radio"
-              name="viewMode"
-              value="admin"
-              checked={settings.viewMode === 'admin'}
-              onChange={() => update({ viewMode: 'admin' })}
-            />
-            Full Admin View — all filters disabled, raw Kubernetes exposed
-          </label>
-        </div>
-      </div>
+      {/* ── View Mode ─────────────────────────────────────────────────────── */}
+      <Section title="View Mode">
+        <RadioGroup
+          value={settings.viewMode}
+          onChange={e => update({ viewMode: e.target.value as 'sailor' | 'admin' })}
+        >
+          <FormControlLabel
+            value="sailor"
+            control={<Radio />}
+            label={
+              <Box>
+                <Typography variant="body1">Sailor View</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Simplified — plain-language labels, complexity hidden
+                </Typography>
+              </Box>
+            }
+          />
+          <FormControlLabel
+            value="admin"
+            control={<Radio />}
+            label={
+              <Box>
+                <Typography variant="body1">Full Admin View</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  All filters disabled — raw Kubernetes exposed
+                </Typography>
+              </Box>
+            }
+          />
+        </RadioGroup>
+      </Section>
 
-      {/* ── Namespace → System Name Mappings ─────────────────────────────────── */}
-      <div style={sectionStyle}>
-        <span style={labelStyle}>Namespace → System Name Mappings</span>
-        <p style={{ fontSize: '13px', color: '#666', marginBottom: '12px' }}>
-          Map Kubernetes namespaces to friendly names shown to sailors (e.g. "slemr-prod" → "SLEMR").
-        </p>
+      {/* ── Namespace Mappings ────────────────────────────────────────────── */}
+      <Section title="Namespace → System Name Mappings">
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Map Kubernetes namespaces to friendly names shown to sailors (e.g. "prod-api" → "API Service").
+        </Typography>
         {settings.namespaceMappings.map((m, i) => (
-          <div key={i} style={rowStyle}>
-            <input
-              style={inputStyle}
-              placeholder="Namespace (e.g. slemr-prod)"
+          <Box key={i} sx={{ display: 'flex', gap: 1, mb: 1, alignItems: 'center' }}>
+            <TextField
+              size="small"
+              label="Namespace"
+              placeholder="e.g. prod-api"
               value={m.namespace}
               onChange={e => updateMapping(i, 'namespace', e.target.value)}
+              sx={{ flex: 1 }}
             />
-            <span style={{ color: '#999' }}>→</span>
-            <input
-              style={inputStyle}
-              placeholder="System name (e.g. SLEMR)"
+            <Typography color="text.secondary">→</Typography>
+            <TextField
+              size="small"
+              label="System name"
+              placeholder="e.g. API Service"
               value={m.systemName}
               onChange={e => updateMapping(i, 'systemName', e.target.value)}
+              sx={{ flex: 1 }}
             />
-            <button style={{ ...btnStyle, color: '#c00' }} onClick={() => removeMapping(i)}>Remove</button>
-          </div>
+            <IconButton size="small" onClick={() => removeMapping(i)} aria-label="Remove mapping">
+              ✕
+            </IconButton>
+          </Box>
         ))}
-        <button style={btnStyle} onClick={addMapping}>+ Add Mapping</button>
-      </div>
+        <Button variant="outlined" size="small" onClick={addMapping} sx={{ mt: 1 }}>
+          + Add Mapping
+        </Button>
+      </Section>
 
-      {/* ── Feature Toggles ──────────────────────────────────────────────────── */}
-      <div style={sectionStyle}>
-        <span style={labelStyle}>Feature Toggles</span>
-        <div style={checkRowStyle}>
-          <input
-            type="checkbox"
-            id="toggle-terminology"
-            checked={settings.enableTerminology}
-            onChange={e => update({ enableTerminology: e.target.checked })}
-          />
-          <label htmlFor="toggle-terminology">Plain Language Terminology — rename columns and sidebar items</label>
-        </div>
-        <div style={checkRowStyle}>
-          <input
-            type="checkbox"
-            id="toggle-troubleshooting"
-            checked={settings.enableTroubleshooting}
-            onChange={e => update({ enableTroubleshooting: e.target.checked })}
-          />
-          <label htmlFor="toggle-troubleshooting">Guided Troubleshooting Panel — "What's happening?" on workload detail pages</label>
-        </div>
-        <div style={checkRowStyle}>
-          <input
-            type="checkbox"
-            id="toggle-complexity"
-            checked={settings.enableComplexityHiding}
-            onChange={e => update({ enableComplexityHiding: e.target.checked })}
-          />
-          <label htmlFor="toggle-complexity">Complexity Hiding — suppress advanced Kubernetes routes and sidebar items</label>
-        </div>
-      </div>
+      {/* ── Feature Toggles ───────────────────────────────────────────────── */}
+      <Section title="Feature Toggles">
+        <ToggleRow
+          label="Plain Language Terminology"
+          description="Renames sidebar items and column headers (Pods → Processes, Namespace → System, etc.)"
+          checked={settings.enableTerminology}
+          onChange={v => update({ enableTerminology: v })}
+        />
+        <ToggleRow
+          label="Guided Troubleshooting Panel"
+          description={"Adds a \"What's happening?\" section to workload detail pages with plain-English diagnostics"}
+          checked={settings.enableTroubleshooting}
+          onChange={v => update({ enableTroubleshooting: v })}
+        />
+        <ToggleRow
+          label="Complexity Hiding"
+          description="Suppresses advanced Kubernetes routes and sidebar items (CRDs, Roles, etc.)"
+          checked={settings.enableComplexityHiding}
+          onChange={v => update({ enableComplexityHiding: v })}
+        />
+      </Section>
 
-      {/* ── Hidden Routes ────────────────────────────────────────────────────── */}
-      <div style={sectionStyle}>
-        <span style={labelStyle}>Hidden Routes (Complexity Hiding)</span>
-        <p style={{ fontSize: '13px', color: '#666', marginBottom: '12px' }}>
-          Select which route categories to suppress in Sailor View mode.
-        </p>
+      {/* ── Hidden Routes ─────────────────────────────────────────────────── */}
+      <Section title="Hidden Routes">
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Choose which sections to hide when Complexity Hiding is enabled.
+        </Typography>
         {(
           [
             ['crds', 'Custom Resource Definitions (CRDs)'],
@@ -196,17 +187,54 @@ export function SettingsPage({ data, onDataChange }: SettingsProps) {
             ['namespaces', 'Namespaces'],
           ] as [keyof SailorViewSettings['hideRoutes'], string][]
         ).map(([key, label]) => (
-          <div key={key} style={checkRowStyle}>
-            <input
-              type="checkbox"
-              id={`hide-${key}`}
-              checked={settings.hideRoutes[key]}
-              onChange={e => updateHideRoutes({ [key]: e.target.checked })}
-            />
-            <label htmlFor={`hide-${key}`}>{label}</label>
-          </div>
+          <ToggleRow
+            key={key}
+            label={label}
+            checked={settings.hideRoutes[key]}
+            onChange={v => updateHideRoutes({ [key]: v })}
+          />
         ))}
-      </div>
-    </div>
+      </Section>
+    </Box>
+  );
+}
+
+// ── Small helpers ──────────────────────────────────────────────────────────────
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <Box sx={{ mb: 3 }}>
+      <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1.5 }}>
+        {title}
+      </Typography>
+      {children}
+      <Divider sx={{ mt: 2 }} />
+    </Box>
+  );
+}
+
+function ToggleRow({
+  label,
+  description,
+  checked,
+  onChange,
+}: {
+  label: string;
+  description?: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+      <Box sx={{ pr: 2 }}>
+        <Typography variant="body2">{label}</Typography>
+        {description && (
+          <Typography variant="caption" color="text.secondary">
+            {description}
+          </Typography>
+        )}
+      </Box>
+      <Switch checked={checked} onChange={e => onChange(e.target.checked)} size="small" />
+    </Box>
   );
 }

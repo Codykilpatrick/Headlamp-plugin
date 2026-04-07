@@ -6,12 +6,12 @@
   "scripts": {
     "build": "headlamp-plugin build",
     "start": "headlamp-plugin start",
+    "dev": "./scripts/dev.sh",
     "tsc": "tsc --noEmit"
   },
-  "dependencies": {
-    "@kinvolk/headlamp-plugin": "^0.8.0"
-  },
+  "dependencies": {},
   "devDependencies": {
+    "@kinvolk/headlamp-plugin": "^0.13.1",
     "typescript": "^4.9.5"
   },
   "keywords": ["headlamp-plugin"]

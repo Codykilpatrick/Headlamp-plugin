@@ -17,14 +17,17 @@ const SIDEBAR_LABEL_MAP: Record<string, string> = {
   Pods: 'Processes',
   deployments: 'Deployments',
   Deployments: 'Deployments',
-  services: 'Connections',
-  Services: 'Connections',
+  network: 'Connections',
+  Network: 'Connections',
+  services: 'Services',
+  Services: 'Services',
   configmaps: 'Configuration',
   ConfigMaps: 'Configuration',
   secrets: 'Secrets',
   Secrets: 'Secrets',
   storage: 'Storage',
   Storage: 'Storage',
+  Map: 'Fleet Map'
 };
 
 // Sidebar entries to hide entirely in sailor mode (by name/id, lowercase)
@@ -43,6 +46,10 @@ const SIDEBAR_HIDE_IN_SAILOR = new Set([
   'resourcequotas',
   'poddisruptionbudgets',
   'horizontalpodautoscalers',
+  'Security',
+  'Gateways',
+  'GatewayClasses',
+  'GatewayPolicies',
 ]);
 
 export function makeTerminologyFilters() {
@@ -61,7 +68,7 @@ export function makeTerminologyFilters() {
 
     const newLabel = SIDEBAR_LABEL_MAP[entry?.name] ?? SIDEBAR_LABEL_MAP[entry?.label];
     if (newLabel) {
-      return { ...entry, label: newLabel };
+      entry.label = newLabel; // mutate in place — Headlamp's filter() discards the return value for replacements
     }
 
     return entry;
@@ -71,7 +78,7 @@ export function makeTerminologyFilters() {
    * Column processor: called by Headlamp with the array of column definitions
    * for a resource table. We mutate headers and cell renderers.
    */
-  function columnProcessor(columns: any[], resourceClass: any): any[] {
+  function columnProcessor({ columns }: { id: string; columns: any[] }): any[] {
     const settings = getSettings();
     if (!settings.enableTerminology || settings.viewMode === 'admin') return columns;
 
