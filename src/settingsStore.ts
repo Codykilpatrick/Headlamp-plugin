@@ -49,3 +49,21 @@ export function getSettings(): SailorViewSettings {
     return DEFAULT_SETTINGS;
   }
 }
+
+/** Merge updates into Sailor View config and write Headlamp’s `pluginConfigs` blob (same shape as Save in settings). */
+export function persistSailorViewSettings(updates: Partial<SailorViewSettings>): void {
+  const prev = getSettings();
+  const next: SailorViewSettings = {
+    ...prev,
+    ...updates,
+    hideRoutes: { ...prev.hideRoutes, ...(updates.hideRoutes ?? {}) },
+  };
+  try {
+    const raw = localStorage.getItem(PLUGIN_CONFIGS_STORAGE_KEY);
+    const all: Record<string, unknown> = raw ? JSON.parse(raw) : {};
+    all[SAILOR_VIEW_PLUGIN_CONFIG_KEY] = next;
+    localStorage.setItem(PLUGIN_CONFIGS_STORAGE_KEY, JSON.stringify(all));
+  } catch (e) {
+    console.error('sailor-view: could not persist settings', e);
+  }
+}
