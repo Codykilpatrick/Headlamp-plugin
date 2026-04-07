@@ -4,7 +4,7 @@ A [Headlamp](https://headlamp.dev) plugin that provides a plain-language Kuberne
 
 **Features:**
 - Plain-language terminology (Pods → Processes, Services → Connections, etc.)
-- Color-coded system health dashboard per namespace
+- Color-coded system health dashboard per namespace (aggregates **Deployments** and **StatefulSets** by ready replicas)
 - Guided troubleshooting panel with human-readable diagnostics
 - Hides advanced Kubernetes complexity by default
 

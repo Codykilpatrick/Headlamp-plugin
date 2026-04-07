@@ -19,6 +19,7 @@ import {
   registerDetailsViewSection,
   registerRouteFilter,
   registerPluginSettings,
+  registerUIPanel,
 } from '@kinvolk/headlamp-plugin/lib';
 ```
 

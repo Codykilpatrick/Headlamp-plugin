@@ -21,4 +21,4 @@ Full reference: [docs/HEADLAMP_PLUGIN_API.md](docs/HEADLAMP_PLUGIN_API.md). Read
 
 ## Other registrations used here
 
-- `registerSidebarEntry`, `registerRoute`, `registerResourceTableColumnsProcessor`, `registerDetailsViewSection`, `registerPluginSettings` — see `src/index.tsx` and the doc above.
+- `registerSidebarEntry`, `registerRoute`, `registerResourceTableColumnsProcessor`, `registerDetailsViewSection`, `registerPluginSettings`, `registerUIPanel` — see `src/index.tsx` and the doc above.

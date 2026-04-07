@@ -16,6 +16,8 @@ kubectl get pods -n demo-ship-bus
 
 ## Sailor View settings (Headlamp)
 
+System Health rolls up **Deployments and StatefulSets** in each namespace (Redpanda runs as a StatefulSet). If you use a custom RBAC role, allow **list/watch** on `statefulsets` (and `deployments`) in that namespace.
+
 Add a namespace mapping so System Health shows a friendly name:
 
 | Namespace        | System name (example)   |
