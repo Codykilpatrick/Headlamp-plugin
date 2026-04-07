@@ -7,10 +7,12 @@ import {
   registerRouteFilter,
   registerPluginSettings,
   registerUIPanel,
+  registerAppBarAction,
 } from '@kinvolk/headlamp-plugin/lib';
 
 import React from 'react';
 import { getFilterDrivingSettingsSignature } from './settingsStore';
+import { ViewModeToggle } from './ViewModeToggle';
 import { SettingsPage } from './settings';
 import { SailorLandingRedirect } from './dashboard/SailorLandingRedirect';
 import { SystemHealthDashboard, SystemDrillDown } from './dashboard/SystemHealthDashboard';
@@ -20,6 +22,9 @@ import { makeComplexityFilters } from './complexity';
 
 // Settings — must be registered first so config is available
 registerPluginSettings('sailor-view', SettingsPage, true);
+
+// Sailor / Admin toggle in the top app bar (global; reloads on change like settings)
+registerAppBarAction(() => React.createElement(ViewModeToggle, { variant: 'appBar' }));
 
 // ── Feature 1: System Health Dashboard ──────────────────────────────────────
 registerSidebarEntry({

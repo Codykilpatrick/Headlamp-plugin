@@ -2,14 +2,13 @@ import React, { useState } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
-import ToggleButton from '@mui/material/ToggleButton';
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Typography from '@mui/material/Typography';
 import { alpha, useTheme, type Theme } from '@mui/material/styles';
 import { K8s } from '@kinvolk/headlamp-plugin/lib';
 import { useHistory, useLocation, useParams } from 'react-router-dom';
 import { withClusterPrefix } from '../lib/clusterPaths';
-import { getSettings, persistSailorViewSettings } from '../settingsStore';
+import { getSettings } from '../settingsStore';
+import { ViewModeToggle } from '../ViewModeToggle';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -216,12 +215,6 @@ export function SystemHealthDashboard() {
     window.setTimeout(() => setCopyFeedback(null), 4000);
   }
 
-  function handleViewModeChange(_: React.MouseEvent<HTMLElement>, value: 'sailor' | 'admin' | null) {
-    if (value === null || value === settings.viewMode) return;
-    persistSailorViewSettings({ viewMode: value });
-    window.location.reload();
-  }
-
   return (
     <Box sx={{ p: 3 }}>
       <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2 }}>
@@ -249,25 +242,7 @@ export function SystemHealthDashboard() {
           )}
         </Box>
         <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1, flexShrink: 0 }}>
-          <Box>
-            <Typography component="span" variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'right', mb: 0.5 }}>
-              View mode (reloads to apply)
-            </Typography>
-            <ToggleButtonGroup
-              exclusive
-              value={settings.viewMode}
-              onChange={handleViewModeChange}
-              size="small"
-              aria-label="Sailor or admin view mode"
-            >
-              <ToggleButton value="sailor" aria-label="Sailor view">
-                Sailor
-              </ToggleButton>
-              <ToggleButton value="admin" aria-label="Admin view">
-                Admin
-              </ToggleButton>
-            </ToggleButtonGroup>
-          </Box>
+          <ViewModeToggle variant="page" />
           <Button variant="outlined" size="medium" onClick={() => handleCopySummary()}>
             Copy summary
           </Button>
