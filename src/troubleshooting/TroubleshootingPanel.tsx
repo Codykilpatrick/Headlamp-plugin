@@ -9,6 +9,11 @@
  */
 
 import React, { useState } from 'react';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
+import Typography from '@mui/material/Typography';
+import { alpha, useTheme, type Theme } from '@mui/material/styles';
 import { getSettings } from '../settingsStore';
 
 // ── Types mirroring common K8s status shapes ─────────────────────────────────
@@ -157,17 +162,46 @@ function diagnose(resource: any): Diagnosis {
   };
 }
 
-// ── Severity styles ──────────────────────────────────────────────────────────
+// ── Theme-aligned severity (matches System Health / Headlamp MUI) ───────────
 
-const SEVERITY_STYLES = {
-  ok: { border: '#2e7d32', bg: '#e8f5e9', icon: '✅' },
-  warn: { border: '#e65100', bg: '#fff8e1', icon: '⚠️' },
-  error: { border: '#c62828', bg: '#ffebee', icon: '🔴' },
-};
+function severityBorderColor(theme: Theme, severity: Diagnosis['severity']): string {
+  switch (severity) {
+    case 'ok':
+      return theme.palette.success.main;
+    case 'warn':
+      return theme.palette.warning.main;
+    default:
+      return theme.palette.error.main;
+  }
+}
+
+function severitySurfaceColor(theme: Theme, severity: Diagnosis['severity']): string {
+  const a = theme.palette.mode === 'dark' ? 0.18 : 0.12;
+  switch (severity) {
+    case 'ok':
+      return alpha(theme.palette.success.main, a);
+    case 'warn':
+      return alpha(theme.palette.warning.main, a);
+    default:
+      return alpha(theme.palette.error.main, a);
+  }
+}
+
+function severityChipProps(severity: Diagnosis['severity']): { label: string; color: 'success' | 'warning' | 'error' } {
+  switch (severity) {
+    case 'ok':
+      return { label: 'All good', color: 'success' };
+    case 'warn':
+      return { label: 'Needs attention', color: 'warning' };
+    default:
+      return { label: 'Problem', color: 'error' };
+  }
+}
 
 // ── Component ────────────────────────────────────────────────────────────────
 
 export function TroubleshootingSection({ resource }: { resource: any }) {
+  const theme = useTheme();
   const settings = getSettings();
   const [showRaw, setShowRaw] = useState(false);
 
@@ -178,67 +212,79 @@ export function TroubleshootingSection({ resource }: { resource: any }) {
   if (!settings.enableTroubleshooting) return null;
 
   const { summary, recommendation, severity } = diagnose(resource);
-  const style = SEVERITY_STYLES[severity];
+  const borderColor = severityBorderColor(theme, severity);
+  const surfaceColor = severitySurfaceColor(theme, severity);
+  const chip = severityChipProps(severity);
 
   const rawYaml = JSON.stringify(resource?.status ?? {}, null, 2);
 
   return (
-    <div
-      style={{
-        border: `2px solid ${style.border}`,
-        borderRadius: '10px',
-        padding: '20px',
-        backgroundColor: style.bg,
-        marginBottom: '24px',
-        fontFamily: 'sans-serif',
+    <Box
+      sx={{
+        border: 2,
+        borderColor: borderColor,
+        borderRadius: 2,
+        p: 2.5,
+        mb: 3,
+        bgcolor: surfaceColor,
+        boxShadow: theme.shadows[1],
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
-        <span style={{ fontSize: '20px' }}>{style.icon}</span>
-        <span style={{ fontWeight: 700, fontSize: '16px' }}>What's happening?</span>
-      </div>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, mb: 1.25, flexWrap: 'wrap' }}>
+        <Chip label={chip.label} size="small" color={chip.color} sx={{ fontWeight: 600 }} />
+        <Typography component="h2" variant="h6" sx={{ fontWeight: 700, color: 'text.primary' }}>
+          What&apos;s happening?
+        </Typography>
+      </Box>
 
-      <p style={{ margin: '0 0 8px 0', fontSize: '15px', fontWeight: 500 }}>{summary}</p>
-      <p style={{ margin: '0 0 16px 0', fontSize: '14px', color: '#444' }}>
-        <strong>Recommended action:</strong> {recommendation}
-      </p>
+      <Typography variant="body1" sx={{ fontWeight: 500, color: 'text.primary', mb: 1 }}>
+        {summary}
+      </Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        <Box component="span" sx={{ fontWeight: 600, color: 'text.primary' }}>
+          Recommended action:{' '}
+        </Box>
+        {recommendation}
+      </Typography>
 
-      {/* Container status summary */}
       <ContainerSummary resource={resource} />
 
-      {/* Raw status toggle */}
-      <button
+      <Button
+        variant="outlined"
+        size="small"
         onClick={() => setShowRaw(v => !v)}
-        style={{
-          background: 'none',
-          border: `1px solid ${style.border}`,
-          borderRadius: '4px',
-          padding: '4px 12px',
-          cursor: 'pointer',
-          fontSize: '12px',
-          color: style.border,
-          marginTop: '8px',
+        sx={{
+          mt: 1,
+          borderColor,
+          color: borderColor,
+          '&:hover': { borderColor, bgcolor: alpha(borderColor, theme.palette.mode === 'dark' ? 0.12 : 0.08) },
         }}
       >
         {showRaw ? 'Hide raw status' : 'Show raw status'}
-      </button>
+      </Button>
 
       {showRaw && (
-        <pre
-          style={{
-            marginTop: '12px',
-            padding: '12px',
-            backgroundColor: 'rgba(0,0,0,0.04)',
-            borderRadius: '6px',
-            fontSize: '11px',
+        <Box
+          component="pre"
+          sx={{
+            mt: 1.5,
+            p: 1.5,
+            borderRadius: 1,
+            fontSize: '0.75rem',
             overflowX: 'auto',
-            maxHeight: '300px',
+            maxHeight: 300,
+            m: 0,
+            bgcolor: alpha(theme.palette.text.primary, theme.palette.mode === 'dark' ? 0.08 : 0.04),
+            color: 'text.primary',
+            border: 1,
+            borderColor: 'divider',
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
           }}
         >
           {rawYaml}
-        </pre>
+        </Box>
       )}
-    </div>
+    </Box>
   );
 }
 
@@ -249,19 +295,26 @@ function ContainerSummary({ resource }: { resource: any }) {
   if (containers.length === 0) return null;
 
   return (
-    <div style={{ marginBottom: '8px' }}>
+    <Box sx={{ mb: 1 }}>
       {containers.map(cs => {
         const state = cs.state?.running
           ? 'Running'
           : cs.state?.waiting?.reason ?? cs.state?.terminated?.reason ?? 'Unknown';
         const restarts = cs.restartCount ?? 0;
         return (
-          <div key={cs.name} style={{ fontSize: '13px', color: '#555', marginBottom: '2px' }}>
-            <strong>{cs.name}</strong>: {state}
-            {restarts > 0 && <span style={{ color: '#c62828', marginLeft: '8px' }}>{restarts} restart{restarts !== 1 ? 's' : ''}</span>}
-          </div>
+          <Typography key={cs.name} variant="body2" color="text.secondary" sx={{ mb: 0.25 }}>
+            <Box component="span" sx={{ fontWeight: 600, color: 'text.primary' }}>
+              {cs.name}
+            </Box>
+            : {state}
+            {restarts > 0 && (
+              <Box component="span" sx={{ color: 'error.main', ml: 1 }}>
+                {restarts} restart{restarts !== 1 ? 's' : ''}
+              </Box>
+            )}
+          </Typography>
         );
       })}
-    </div>
+    </Box>
   );
 }
