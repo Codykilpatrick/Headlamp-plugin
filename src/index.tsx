@@ -19,6 +19,7 @@ import { SystemHealthDashboard, SystemDrillDown } from './dashboard/SystemHealth
 import { makeTerminologyFilters } from './terminology';
 import { TroubleshootingSection } from './troubleshooting/TroubleshootingPanel';
 import { makeComplexityFilters } from './complexity';
+import { registerSailorDetailsView } from './sailorDetailsView';
 
 // Settings — must be registered first so config is available
 registerPluginSettings('sailor-view', SettingsPage, true);
@@ -65,6 +66,9 @@ registerResourceTableColumnsProcessor(columnProcessor);
 
 // ── Feature 3: Guided Troubleshooting Panel ──────────────────────────────────
 registerDetailsViewSection(TroubleshootingSection);
+
+// Sailor view: hide Container spec blocks + trim deployment revision / last-applied annotations
+registerSailorDetailsView();
 
 // ── Feature 4: Complexity Hiding ─────────────────────────────────────────────
 const { routeFilter, sidebarFilter: complexitySidebarFilter } = makeComplexityFilters();
