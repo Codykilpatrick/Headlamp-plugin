@@ -24,6 +24,9 @@ interface SystemSummary {
   totalCount: number;
   /** Deployments and StatefulSets (same replica / readyReplicas shape). */
   workloads: any[];
+  pvcStatus: SystemStatus | null;
+  restartCount: number;
+  warningEventCount: number;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -66,6 +69,12 @@ function worstStatus(statuses: SystemStatus[]): SystemStatus {
   if (statuses.includes('Degraded')) return 'Degraded';
   if (statuses.includes('Unknown')) return 'Unknown';
   return 'Running';
+}
+
+function pvcPhaseStatus(phase: string): SystemStatus {
+  if (phase === 'Bound') return 'Running';
+  if (phase === 'Pending') return 'Degraded';
+  return 'Offline';
 }
 
 function workloadKindCounts(workloads: any[]): { deployment: number; statefulSet: number } {
@@ -200,6 +209,11 @@ export function SystemHealthDashboard() {
   const theme = useTheme();
   const [deployments, deployError] = K8s.ResourceClasses.Deployment.useList();
   const [statefulSets, stsError] = K8s.ResourceClasses.StatefulSet.useList();
+  const [pvcs] = K8s.ResourceClasses.PersistentVolumeClaim.useList();
+  const [nodes] = K8s.ResourceClasses.Node.useList();
+  const [pods] = K8s.ResourceClasses.Pod.useList();
+  const EventClass = (K8s.event as any).default;
+  const [events] = EventClass.useList();
   const history = useHistory();
   const location = useLocation();
   const settings = getSettings();
@@ -233,6 +247,43 @@ export function SystemHealthDashboard() {
     if (m.namespace) nsMap[m.namespace] = m.systemName || m.namespace;
   }
 
+  // ── Per-namespace derived data ───────────────────────────────────────────────
+
+  // PVC worst status per namespace
+  const pvcStatusByNs: Record<string, SystemStatus> = {};
+  for (const pvc of pvcs ?? []) {
+    const ns: string = pvc?.metadata?.namespace ?? 'default';
+    const s = pvcPhaseStatus(pvc?.status?.phase ?? 'Unknown');
+    pvcStatusByNs[ns] = worstStatus([pvcStatusByNs[ns] ?? 'Running', s]);
+  }
+
+  // Total restart count per namespace (sum all container restarts across pods)
+  const restartsByNs: Record<string, number> = {};
+  for (const pod of pods ?? []) {
+    const ns: string = pod?.metadata?.namespace ?? 'default';
+    const containerStatuses: any[] = pod?.status?.containerStatuses ?? [];
+    const restarts = containerStatuses.reduce((s: number, cs: any) => s + (cs?.restartCount ?? 0), 0);
+    restartsByNs[ns] = (restartsByNs[ns] ?? 0) + restarts;
+  }
+
+  // Warning event count per namespace (recent Warning-type events)
+  const warningsByNs: Record<string, number> = {};
+  for (const ev of events ?? []) {
+    if (ev?.type !== 'Warning') continue;
+    const ns: string = ev?.involvedObject?.namespace ?? ev?.metadata?.namespace ?? 'default';
+    warningsByNs[ns] = (warningsByNs[ns] ?? 0) + 1;
+  }
+
+  // ── Node health ──────────────────────────────────────────────────────────────
+  const nodeList = nodes ?? [];
+  const nodeReady = nodeList.filter(n => {
+    const readyCond = (n?.status?.conditions ?? []).find((c: any) => c.type === 'Ready');
+    return readyCond?.status === 'True';
+  });
+  const nodeTotal = nodeList.length;
+  const nodeReadyCount = nodeReady.length;
+  const allNodesReady = nodeTotal > 0 && nodeReadyCount === nodeTotal;
+
   const grouped = groupWorkloadsByNamespace(deployments, statefulSets);
   const namespacesWithWorkloads = Object.keys(grouped).length;
   const hiddenNs = healthHiddenNamespaceSet(settings.systemHealthHiddenNamespaces);
@@ -240,17 +291,22 @@ export function SystemHealthDashboard() {
   const systems: SystemSummary[] = Object.entries(grouped)
     .filter(([ns]) => !isNamespaceHiddenFromHealth(ns, hiddenNs))
     .map(([ns, workloads]) => {
-    const statuses = workloads.map(replicaWorkloadStatus);
-    const readyCount = workloads.reduce((sum, w) => sum + (w?.status?.readyReplicas ?? 0), 0);
-    const totalCount = workloads.reduce((sum, w) => sum + (w?.spec?.replicas ?? 1), 0);
-    return {
-      systemName: nsMap[ns] || ns,
-      namespace: ns,
-      status: worstStatus(statuses),
-      readyCount,
-      totalCount,
-      workloads,
-    };
+      const statuses = workloads.map(replicaWorkloadStatus);
+      const pvcStatus = pvcStatusByNs[ns] ?? null;
+      const allStatuses: SystemStatus[] = [...statuses, ...(pvcStatus ? [pvcStatus] : [])];
+      const readyCount = workloads.reduce((sum, w) => sum + (w?.status?.readyReplicas ?? 0), 0);
+      const totalCount = workloads.reduce((sum, w) => sum + (w?.spec?.replicas ?? 1), 0);
+      return {
+        systemName: nsMap[ns] || ns,
+        namespace: ns,
+        status: worstStatus(allStatuses),
+        readyCount,
+        totalCount,
+        workloads,
+        pvcStatus,
+        restartCount: restartsByNs[ns] ?? 0,
+        warningEventCount: warningsByNs[ns] ?? 0,
+      };
     });
 
   const ORDER: Record<SystemStatus, number> = { Offline: 0, Degraded: 1, Unknown: 2, Running: 3 };
@@ -303,6 +359,12 @@ export function SystemHealthDashboard() {
                     variant="outlined"
                   />
                 )}
+                {pvcs != null && pvcs.length > 0 && (() => {
+                  const bad = pvcs.filter(p => p?.status?.phase !== 'Bound').length;
+                  return bad > 0
+                    ? <Chip label={`${bad} storage ${bad === 1 ? 'issue' : 'issues'}`} size="small" color="warning" variant="outlined" />
+                    : <Chip label={`${pvcs.length} storage volumes healthy`} size="small" color="success" variant="outlined" />;
+                })()}
               </Stack>
               <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 640 }}>
                 Cluster-wide: {clusterWorkloadCount} workload{clusterWorkloadCount !== 1 ? 's' : ''} ·{' '}
@@ -353,6 +415,44 @@ export function SystemHealthDashboard() {
             )}
           </Typography>
         </Paper>
+      )}
+
+      {nodeTotal > 0 && (
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1.5,
+            mt: 2,
+            p: 1.5,
+            borderRadius: 2,
+            border: 1,
+            borderColor: allNodesReady ? theme.palette.success.main : theme.palette.warning.main,
+            bgcolor: allNodesReady
+              ? alpha(theme.palette.success.main, theme.palette.mode === 'dark' ? 0.1 : 0.07)
+              : alpha(theme.palette.warning.main, theme.palette.mode === 'dark' ? 0.1 : 0.07),
+          }}
+        >
+          <Box
+            sx={{
+              width: 10,
+              height: 10,
+              borderRadius: '50%',
+              flexShrink: 0,
+              bgcolor: allNodesReady ? theme.palette.success.main : theme.palette.warning.main,
+            }}
+          />
+          <Typography variant="body2" fontWeight={600} color="text.primary">
+            {allNodesReady
+              ? `${nodeTotal} ${nodeTotal === 1 ? 'node' : 'nodes'} · All healthy`
+              : `${nodeReadyCount} / ${nodeTotal} nodes ready`}
+          </Typography>
+          {!allNodesReady && (
+            <Typography variant="caption" color="text.secondary">
+              — some cluster nodes are not ready, workloads may be affected
+            </Typography>
+          )}
+        </Box>
       )}
 
       <Box
@@ -423,6 +523,27 @@ export function SystemHealthDashboard() {
               <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.75 }}>
                 {parts} workload{parts !== 1 ? 's' : ''} · View list
               </Typography>
+              {(sys.restartCount > 0 || sys.warningEventCount > 0) && (
+                <Stack direction="row" spacing={0.75} sx={{ mt: 1, flexWrap: 'wrap' }} useFlexGap>
+                  {sys.restartCount > 0 && (
+                    <Chip
+                      label={`${sys.restartCount} restart${sys.restartCount !== 1 ? 's' : ''}`}
+                      size="small"
+                      color="warning"
+                      sx={{ fontWeight: 600, fontSize: '0.7rem', height: 20 }}
+                    />
+                  )}
+                  {sys.warningEventCount > 0 && (
+                    <Chip
+                      label={`${sys.warningEventCount} warning${sys.warningEventCount !== 1 ? 's' : ''}`}
+                      size="small"
+                      color="error"
+                      variant="outlined"
+                      sx={{ fontWeight: 600, fontSize: '0.7rem', height: 20 }}
+                    />
+                  )}
+                </Stack>
+              )}
             </Box>
           );
         })}
