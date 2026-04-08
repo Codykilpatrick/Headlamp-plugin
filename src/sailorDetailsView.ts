@@ -23,6 +23,9 @@ const SAILOR_HIDDEN_DETAIL_SECTION_IDS = new Set([
   'headlamp.daemonset-containers',
   'headlamp.pod-containers',
   'headlamp.workload-revision-history',
+  'headlamp.pod-tolerations',
+  'headlamp.pod-conditions',
+  'headlamp.pod-volumes',
 ]);
 
 /** Shown under “Annotations”; sailors rarely need rollout / last-applied blobs. */
