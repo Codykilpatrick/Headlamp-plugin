@@ -64,6 +64,19 @@ else
 fi
 DOCKER_RUN_ARGS+=( -v "$REPO_ROOT/dist:/headlamp/plugins/$PLUGIN_NAME:ro" )
 
+# ── AI Assistant plugin ───────────────────────────────────────────────────────
+AI_PLUGIN_DIR="${REPO_ROOT}/.plugins/ai-assistant"
+AI_PLUGIN_VERSION="0.2.0-alpha"
+AI_PLUGIN_URL="https://github.com/headlamp-k8s/plugins/releases/download/ai-assistant-${AI_PLUGIN_VERSION}/headlamp-k8s-ai-assistant-${AI_PLUGIN_VERSION}.tar.gz"
+
+if [[ ! -d "$AI_PLUGIN_DIR" ]]; then
+  echo "==> Downloading Headlamp AI Assistant plugin ${AI_PLUGIN_VERSION}..."
+  mkdir -p "$AI_PLUGIN_DIR"
+  curl -sL "$AI_PLUGIN_URL" | tar -xz -C "$AI_PLUGIN_DIR" --strip-components=1
+  echo "==> AI Assistant plugin downloaded."
+fi
+DOCKER_RUN_ARGS+=( -v "${AI_PLUGIN_DIR}:/headlamp/plugins/ai-assistant:ro" )
+
 echo "==> Starting Headlamp on http://localhost:$PORT ..."
 docker run "${DOCKER_RUN_ARGS[@]}" \
   ghcr.io/headlamp-k8s/headlamp:latest \
