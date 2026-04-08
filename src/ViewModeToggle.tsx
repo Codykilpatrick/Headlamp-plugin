@@ -47,7 +47,7 @@ export function ViewModeToggle({ variant = 'page' }: ViewModeToggleProps) {
   if (variant === 'appBar') {
     return (
       <Tooltip title="Sailor (simplified) vs Admin (full Kubernetes UI). The page reloads when you switch.">
-        <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center' }}>
+        <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', ml: 1 }}>
           {group}
         </Box>
       </Tooltip>
