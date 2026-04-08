@@ -3,6 +3,7 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
+import Divider from '@mui/material/Divider';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
@@ -308,13 +309,7 @@ export function SystemHealthDashboard() {
 
   // ── Node health ──────────────────────────────────────────────────────────────
   const nodeList = nodes ?? [];
-  const nodeReady = nodeList.filter(n => {
-    const readyCond = (n?.status?.conditions ?? []).find((c: any) => c.type === 'Ready');
-    return readyCond?.status === 'True';
-  });
   const nodeTotal = nodeList.length;
-  const nodeReadyCount = nodeReady.length;
-  const allNodesReady = nodeTotal > 0 && nodeReadyCount === nodeTotal;
 
   const grouped = groupWorkloadsByNamespace(deployments, statefulSets);
   const namespacesWithWorkloads = Object.keys(grouped).length;
@@ -451,41 +446,14 @@ export function SystemHealthDashboard() {
         </Paper>
       )}
 
-      {nodeTotal > 0 && (
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 1.5,
-            mt: 2,
-            p: 1.5,
-            borderRadius: 2,
-            border: 1,
-            borderColor: allNodesReady ? theme.palette.success.main : theme.palette.warning.main,
-            bgcolor: allNodesReady
-              ? alpha(theme.palette.success.main, theme.palette.mode === 'dark' ? 0.1 : 0.07)
-              : alpha(theme.palette.warning.main, theme.palette.mode === 'dark' ? 0.1 : 0.07),
-          }}
-        >
-          <Box
-            sx={{
-              width: 10,
-              height: 10,
-              borderRadius: '50%',
-              flexShrink: 0,
-              bgcolor: allNodesReady ? theme.palette.success.main : theme.palette.warning.main,
-            }}
-          />
-          <Typography variant="body2" fontWeight={600} color="text.primary">
-            {allNodesReady
-              ? `${nodeTotal} ${nodeTotal === 1 ? 'node' : 'nodes'} · All healthy`
-              : `${nodeReadyCount} / ${nodeTotal} nodes ready`}
+      {nodeTotal > 0 && <NodeHealthPanel nodes={nodeList} />}
+
+      {systems.length > 0 && (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mt: 3, mb: 1.5 }}>
+          <Typography variant="h6" fontWeight={700} color="text.primary">
+            Systems
           </Typography>
-          {!allNodesReady && (
-            <Typography variant="caption" color="text.secondary">
-              — some cluster nodes are not ready, workloads may be affected
-            </Typography>
-          )}
+          <Divider sx={{ flex: 1 }} />
         </Box>
       )}
 
@@ -494,7 +462,7 @@ export function SystemHealthDashboard() {
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fill, minmax(272px, 1fr))',
           gap: 2,
-          mt: systems.length === 0 ? 2 : 3,
+          mt: systems.length === 0 ? 2 : 0,
         }}
       >
         {systems.map(sys => {
@@ -884,6 +852,151 @@ export function SystemDrillDown() {
           </Box>
         </Box>
       )}
+    </Box>
+  );
+}
+
+// ── NodeHealthPanel ───────────────────────────────────────────────────────────
+
+function nodeConditionTrue(node: any, type: string): boolean {
+  return (node?.status?.conditions ?? []).some((c: any) => c.type === type && c.status === 'True');
+}
+
+function NodeCard({ node }: { node: any }) {
+  const theme = useTheme();
+  const [cordonState, setCordonState] = useState<'idle' | 'confirm' | 'loading' | 'done' | 'error'>('idle');
+  const [errorMsg, setErrorMsg] = useState('');
+
+  const name: string = node?.metadata?.name ?? 'unknown';
+  const isReady = nodeConditionTrue(node, 'Ready');
+  const isCordoned: boolean = node?.spec?.unschedulable === true;
+  const memPressure = nodeConditionTrue(node, 'MemoryPressure');
+  const diskPressure = nodeConditionTrue(node, 'DiskPressure');
+  const pidPressure = nodeConditionTrue(node, 'PIDPressure');
+
+  const pressures: string[] = [
+    ...(memPressure ? ['Low memory'] : []),
+    ...(diskPressure ? ['Low disk space'] : []),
+    ...(pidPressure ? ['High process load'] : []),
+  ];
+
+  const dotColor = !isReady
+    ? theme.palette.error.main
+    : pressures.length > 0 || isCordoned
+      ? theme.palette.warning.main
+      : theme.palette.success.main;
+
+  async function handleCordon() {
+    if (cordonState === 'idle' || cordonState === 'done' || cordonState === 'error') {
+      setCordonState('confirm');
+      setTimeout(() => setCordonState(s => s === 'confirm' ? 'idle' : s), 4000);
+      return;
+    }
+    if (cordonState === 'confirm') {
+      setCordonState('loading');
+      try {
+        await ApiProxy.patch(`/api/v1/nodes/${name}`, { spec: { unschedulable: !isCordoned } });
+        setCordonState('done');
+        setTimeout(() => setCordonState('idle'), 3000);
+      } catch (e: any) {
+        setErrorMsg(e?.message ?? 'Failed');
+        setCordonState('error');
+        setTimeout(() => setCordonState('idle'), 4000);
+      }
+    }
+  }
+
+  const cordonLabel =
+    cordonState === 'confirm' ? 'Confirm?' :
+    cordonState === 'loading' ? (isCordoned ? 'Resuming…' : 'Pausing…') :
+    cordonState === 'done' ? 'Done ✓' :
+    cordonState === 'error' ? 'Failed' :
+    isCordoned ? 'Resume machine' : 'Pause machine';
+
+  return (
+    <Box
+      sx={{
+        border: 1,
+        borderColor: isCordoned
+          ? theme.palette.warning.main
+          : !isReady
+            ? theme.palette.error.main
+            : pressures.length > 0
+              ? theme.palette.warning.main
+              : theme.palette.success.main,
+        borderRadius: 2,
+        p: 2,
+        bgcolor: alpha(dotColor, theme.palette.mode === 'dark' ? 0.08 : 0.05),
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+        gap: 2,
+      }}
+    >
+      <Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+          <Box sx={{ width: 9, height: 9, borderRadius: '50%', flexShrink: 0, bgcolor: dotColor }} />
+          <Typography variant="subtitle2" fontWeight={700} color="text.primary">
+            {name}
+          </Typography>
+          {isCordoned && (
+            <Chip label="Paused" size="small" color="warning" sx={{ fontWeight: 600, fontSize: '0.7rem', height: 20 }} />
+          )}
+        </Box>
+        <Typography variant="caption" color={isReady ? 'text.secondary' : 'error.main'} display="block">
+          {isReady ? 'Ready' : 'Not responding'}
+        </Typography>
+        {pressures.map(p => (
+          <Typography key={p} variant="caption" color="warning.main" display="block">{p}</Typography>
+        ))}
+        {isCordoned && (
+          <Typography variant="caption" color="warning.main" display="block">
+            Not accepting new workloads
+          </Typography>
+        )}
+        {cordonState === 'error' && (
+          <Typography variant="caption" color="error.main" display="block" sx={{ mt: 0.5 }}>{errorMsg}</Typography>
+        )}
+      </Box>
+      <Button
+        size="small"
+        variant={cordonState === 'confirm' ? 'contained' : 'outlined'}
+        color={cordonState === 'confirm' ? 'warning' : cordonState === 'error' ? 'error' : cordonState === 'done' ? 'success' : 'inherit'}
+        disabled={cordonState === 'loading'}
+        onClick={handleCordon}
+        sx={{ minWidth: 130, fontSize: '0.72rem', flexShrink: 0 }}
+      >
+        {cordonLabel}
+      </Button>
+    </Box>
+  );
+}
+
+function NodeHealthPanel({ nodes }: { nodes: any[] }) {
+  const theme = useTheme();
+  const total = nodes.length;
+  const readyCount = nodes.filter(n => nodeConditionTrue(n, 'Ready')).length;
+  const allReady = total > 0 && readyCount === total;
+
+  return (
+    <Box sx={{ mt: 3 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
+        <Typography variant="h6" fontWeight={700} color="text.primary">
+          Machines
+        </Typography>
+        <Divider sx={{ flex: 1 }} />
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+          <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: allReady ? theme.palette.success.main : theme.palette.warning.main }} />
+          <Typography variant="caption" color="text.secondary" fontWeight={500}>
+            {allReady
+              ? `${total} ${total === 1 ? 'machine' : 'machines'} · All healthy`
+              : `${readyCount} / ${total} ready`}
+          </Typography>
+        </Box>
+      </Box>
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 1.5 }}>
+        {nodes.map(n => <NodeCard key={n?.metadata?.uid ?? n?.metadata?.name} node={n} />)}
+      </Box>
     </Box>
   );
 }

@@ -11,11 +11,14 @@ metadata:
 rules:
   - apiGroups: [""]
     resources:
+      - nodes
+    verbs: ["get", "list", "watch", "patch"]
+  - apiGroups: [""]
+    resources:
       - configmaps
       - endpoints
       - events
       - namespaces
-      - nodes
       - persistentvolumeclaims
       - persistentvolumes
       - pods
