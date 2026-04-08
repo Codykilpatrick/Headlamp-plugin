@@ -1,0 +1,142 @@
+# fleet-tracker: vessel position tracking service
+# position-api — nginx serving static JSON vessel positions (stand-in for a REST API)
+# position-db  — postgres storing position history
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: position-api-html
+  namespace: fleet-tracker
+data:
+  index.html: |
+    [
+      {"vessel_id": "IMO-9234567", "name": "MV Meridian Star",  "lat": 51.505, "lon": -0.09,  "speed_kn": 12.4, "heading": 270, "status": "underway"},
+      {"vessel_id": "IMO-9345678", "name": "MV Arctic Resolve", "lat": 59.913, "lon": 10.752, "speed_kn":  8.1, "heading":  45, "status": "underway"},
+      {"vessel_id": "IMO-9456789", "name": "MV Coral Horizon",  "lat": 25.774, "lon": -80.19, "speed_kn":  0.0, "heading":   0, "status": "moored"}
+    ]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: position-api
+  namespace: fleet-tracker
+  labels:
+    app: position-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: position-api
+  template:
+    metadata:
+      labels:
+        app: position-api
+    spec:
+      containers:
+        - name: position-api
+          image: nginx:1.25-alpine
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: data
+              mountPath: /usr/share/nginx/html
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 64Mi
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: data
+          configMap:
+            name: position-api-html
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: position-api
+  namespace: fleet-tracker
+  labels:
+    app: position-api
+spec:
+  selector:
+    app: position-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: position-db-secret
+  namespace: fleet-tracker
+type: Opaque
+stringData:
+  POSTGRES_PASSWORD: "fleet-tracker-secret"
+  POSTGRES_DB: positions
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: position-db
+  namespace: fleet-tracker
+  labels:
+    app: position-db
+spec:
+  serviceName: position-db
+  replicas: 1
+  selector:
+    matchLabels:
+      app: position-db
+  template:
+    metadata:
+      labels:
+        app: position-db
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          envFrom:
+            - secretRef:
+                name: position-db-secret
+          env:
+            - name: POSTGRES_USER
+              value: fleet
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "fleet"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: position-db
+  namespace: fleet-tracker
+  labels:
+    app: position-db
+spec:
+  clusterIP: None
+  selector:
+    app: position-db
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432

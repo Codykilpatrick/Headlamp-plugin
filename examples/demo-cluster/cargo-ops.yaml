@@ -1,0 +1,93 @@
+# cargo-ops: cargo manifest management and loading scheduling
+# manifest-service — go-httpbin acting as a cargo manifest REST API
+# loading-scheduler — CronJob that simulates generating daily loading schedules
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: manifest-service
+  namespace: cargo-ops
+  labels:
+    app: manifest-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: manifest-service
+  template:
+    metadata:
+      labels:
+        app: manifest-service
+    spec:
+      containers:
+        - name: manifest-service
+          image: mccutchen/go-httpbin:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: PORT
+              value: "8080"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 64Mi
+          readinessProbe:
+            httpGet:
+              path: /get
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: manifest-service
+  namespace: cargo-ops
+  labels:
+    app: manifest-service
+spec:
+  selector:
+    app: manifest-service
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: loading-scheduler
+  namespace: cargo-ops
+spec:
+  schedule: "0 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: loading-scheduler
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: scheduler
+              image: busybox:1.36
+              command:
+                - sh
+                - -c
+                - |
+                  echo "==> Generating loading schedule for $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                  echo "    Vessel: MV Meridian Star (IMO-9234567)"
+                  echo "    Port:   Rotterdam — Berth 7"
+                  echo "    Containers: 142 TEU scheduled for loading"
+                  echo "    Estimated completion: +6h"
+                  echo "==> Schedule committed."
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 16Mi
+                limits:
+                  cpu: 100m
+                  memory: 32Mi

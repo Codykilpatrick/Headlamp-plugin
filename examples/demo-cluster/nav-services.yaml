@@ -1,0 +1,121 @@
+# nav-services: navigation chart server and weather feed
+# chart-server  — nginx serving static nautical chart metadata
+# weather-feed  — intentionally broken (bad image) to demonstrate degraded state in the dashboard
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chart-server-html
+  namespace: nav-services
+data:
+  index.html: |
+    [
+      {"chart_id": "GB4810", "region": "North Sea",         "edition": 42, "updated": "2024-11-01", "scale": "1:75000"},
+      {"chart_id": "US11460", "region": "Gulf of Mexico",   "edition": 31, "updated": "2024-10-15", "scale": "1:80000"},
+      {"chart_id": "NO5048", "region": "Norwegian Fjords",  "edition": 18, "updated": "2024-12-01", "scale": "1:50000"}
+    ]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chart-server
+  namespace: nav-services
+  labels:
+    app: chart-server
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: chart-server
+  template:
+    metadata:
+      labels:
+        app: chart-server
+    spec:
+      containers:
+        - name: chart-server
+          image: nginx:1.25-alpine
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: data
+              mountPath: /usr/share/nginx/html
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 64Mi
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: data
+          configMap:
+            name: chart-server-html
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chart-server
+  namespace: nav-services
+  labels:
+    app: chart-server
+spec:
+  selector:
+    app: chart-server
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+---
+# weather-feed is intentionally broken — image does not exist.
+# This keeps the deployment in ImagePullBackOff so the dashboard shows a degraded namespace.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: weather-feed
+  namespace: nav-services
+  labels:
+    app: weather-feed
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: weather-feed
+  template:
+    metadata:
+      labels:
+        app: weather-feed
+    spec:
+      containers:
+        - name: weather-feed
+          image: ghcr.io/headlamp-sailor-view/weather-feed:v1.0.0
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: weather-feed
+  namespace: nav-services
+  labels:
+    app: weather-feed
+spec:
+  selector:
+    app: weather-feed
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080

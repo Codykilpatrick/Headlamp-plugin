@@ -7,6 +7,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: redpanda
+  namespace: demo-ship-bus
   labels:
     app: redpanda
 spec:
@@ -23,6 +24,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: redpanda
+  namespace: demo-ship-bus
   labels:
     app: redpanda
 spec:
