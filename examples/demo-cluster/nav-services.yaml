@@ -73,6 +73,20 @@ spec:
       port: 80
       targetPort: 80
 ---
+# chart-archive-store is intentionally Pending — references a StorageClass that doesn't exist.
+# This demonstrates the degraded storage state in the Sailor View dashboard.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: chart-archive-store
+  namespace: nav-services
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: fast-ssd
+  resources:
+    requests:
+      storage: 5Gi
+---
 # weather-feed is intentionally broken — image does not exist.
 # This keeps the deployment in ImagePullBackOff so the dashboard shows a degraded namespace.
 apiVersion: apps/v1

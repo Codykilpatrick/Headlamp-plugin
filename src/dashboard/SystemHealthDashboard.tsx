@@ -439,6 +439,7 @@ export function SystemDrillDown() {
   const decodedName = decodeURIComponent(systemName);
   const [deployments, deployError] = K8s.ResourceClasses.Deployment.useList();
   const [statefulSets, stsError] = K8s.ResourceClasses.StatefulSet.useList();
+  const [pvcs, pvcError] = K8s.ResourceClasses.PersistentVolumeClaim.useList();
   const history = useHistory();
   const location = useLocation();
   const settings = getSettings();
@@ -481,6 +482,11 @@ export function SystemDrillDown() {
   ].sort();
   const aggReady = systemWorkloads.reduce((s, w) => s + (w?.status?.readyReplicas ?? 0), 0);
   const aggDesired = systemWorkloads.reduce((s, w) => s + (w?.spec?.replicas ?? 1), 0);
+
+  const systemPVCs = (pvcs ?? [])
+    .filter(pvc => !isNamespaceHiddenFromHealth(pvc?.metadata?.namespace ?? 'default', hiddenNs))
+    .filter(pvc => matchesSystem(pvc?.metadata?.namespace ?? 'default'))
+    .sort((a, b) => (a?.metadata?.name ?? '').localeCompare(b?.metadata?.name ?? ''));
 
   const backUrl = withClusterPrefix('/sailor-view/dashboard', location.pathname);
 
@@ -593,6 +599,74 @@ export function SystemDrillDown() {
           );
         })}
       </Box>
+
+      {systemPVCs.length > 0 && (
+        <Box sx={{ mt: 4 }}>
+          <Typography variant="h6" fontWeight={700} sx={{ mb: 1.5 }}>
+            Storage
+          </Typography>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            {systemPVCs.map(pvc => {
+              const name: string = pvc?.metadata?.name ?? 'unknown';
+              const ns: string = pvc?.metadata?.namespace ?? 'default';
+              const phase: string = pvc?.status?.phase ?? 'Unknown';
+              const capacity: string = pvc?.status?.capacity?.storage ?? pvc?.spec?.resources?.requests?.storage ?? '—';
+              const storageClass: string = pvc?.spec?.storageClassName ?? '—';
+              const pvcStatus: SystemStatus =
+                phase === 'Bound' ? 'Running' : phase === 'Pending' ? 'Degraded' : phase === 'Lost' ? 'Offline' : 'Unknown';
+              const detailUrl = withClusterPrefix(`/storage/persistentvolumeclaims/${ns}/${name}`, location.pathname);
+              const needsAttention = pvcStatus === 'Degraded' || pvcStatus === 'Offline';
+              return (
+                <Box
+                  key={pvc?.metadata?.uid ?? name}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => history.push(detailUrl)}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') history.push(detailUrl); }}
+                  sx={{
+                    border: 1,
+                    borderColor: statusBorderColor(theme, pvcStatus),
+                    borderRadius: 2,
+                    p: 2,
+                    bgcolor: statusSurfaceColor(theme, pvcStatus),
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: 2,
+                    cursor: 'pointer',
+                    transition: 'box-shadow 0.15s, transform 0.15s',
+                    '&:hover': { boxShadow: 3, transform: 'translateY(-1px)' },
+                    '&:focus-visible': { outline: `2px solid ${theme.palette.primary.main}`, outlineOffset: 2 },
+                  }}
+                >
+                  <Box>
+                    <Typography variant="subtitle1" fontWeight={600} color="text.primary">
+                      {name}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      PersistentVolumeClaim · {capacity} · {storageClass}
+                    </Typography>
+                    {needsAttention && (
+                      <Typography variant="caption" color="warning.main" sx={{ mt: 0.5, display: 'block', fontWeight: 600 }}>
+                        Needs attention — click to investigate
+                      </Typography>
+                    )}
+                  </Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
+                    <Chip
+                      label={phase}
+                      size="small"
+                      color={pvcStatus === 'Running' ? 'success' : pvcStatus === 'Degraded' ? 'warning' : pvcStatus === 'Offline' ? 'error' : undefined}
+                      sx={{ fontWeight: 600 }}
+                    />
+                    <Typography component="span" sx={{ fontSize: 12, color: 'text.disabled', lineHeight: 1 }}>›</Typography>
+                  </Box>
+                </Box>
+              );
+            })}
+          </Box>
+        </Box>
+      )}
     </Box>
   );
 }
