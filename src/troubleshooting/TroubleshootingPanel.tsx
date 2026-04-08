@@ -204,6 +204,7 @@ export function TroubleshootingSection({ resource }: { resource: any }) {
   const theme = useTheme();
   const settings = getSettings();
   const [showRaw, setShowRaw] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   // Only render for workload kinds; skip if feature disabled or admin mode
   const kind: string = resource?.kind ?? '';
@@ -217,6 +218,37 @@ export function TroubleshootingSection({ resource }: { resource: any }) {
   const chip = severityChipProps(severity);
 
   const rawYaml = JSON.stringify(resource?.status ?? {}, null, 2);
+
+  function buildCopyText(): string {
+    const name = resource?.metadata?.name ?? 'unknown';
+    const ns = resource?.metadata?.namespace ?? '';
+    const containers: ContainerStatus[] = resource?.status?.containerStatuses ?? [];
+    const lines = [
+      `What's happening? — ${kind}: ${ns ? `${ns}/` : ''}${name}`,
+      `Status: ${chip.label}`,
+      '',
+      `Summary: ${summary}`,
+      `Recommended action: ${recommendation}`,
+    ];
+    if (containers.length > 0) {
+      lines.push('', 'Containers:');
+      for (const cs of containers) {
+        const state = cs.state?.running
+          ? 'Running'
+          : cs.state?.waiting?.reason ?? cs.state?.terminated?.reason ?? 'Unknown';
+        const restarts = cs.restartCount ?? 0;
+        lines.push(`  ${cs.name}: ${state}${restarts > 0 ? ` (${restarts} restart${restarts !== 1 ? 's' : ''})` : ''}`);
+      }
+    }
+    return lines.join('\n');
+  }
+
+  function handleCopy() {
+    navigator.clipboard.writeText(buildCopyText()).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
 
   return (
     <Box
@@ -232,9 +264,17 @@ export function TroubleshootingSection({ resource }: { resource: any }) {
     >
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, mb: 1.25, flexWrap: 'wrap' }}>
         <Chip label={chip.label} size="small" color={chip.color} sx={{ fontWeight: 600 }} />
-        <Typography component="h2" variant="h6" sx={{ fontWeight: 700, color: 'text.primary' }}>
+        <Typography component="h2" variant="h6" sx={{ fontWeight: 700, color: 'text.primary', flex: 1 }}>
           What&apos;s happening?
         </Typography>
+        <Button
+          size="small"
+          variant="text"
+          onClick={handleCopy}
+          sx={{ minWidth: 0, px: 1, color: copied ? 'success.main' : 'text.secondary', fontWeight: 500, fontSize: '0.75rem' }}
+        >
+          {copied ? 'Copied!' : 'Copy'}
+        </Button>
       </Box>
 
       <Typography variant="body1" sx={{ fontWeight: 500, color: 'text.primary', mb: 1 }}>
