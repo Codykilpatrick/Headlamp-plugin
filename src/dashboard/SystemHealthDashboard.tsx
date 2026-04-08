@@ -511,8 +511,8 @@ export function SystemDrillDown() {
             {aggReady} / {aggDesired} components ready
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            {systemWorkloads.length} workload{systemWorkloads.length !== 1 ? 's' : ''}. Use the cluster navigation in
-            Headlamp for logs and actions on each part.
+            {systemWorkloads.length} workload{systemWorkloads.length !== 1 ? 's' : ''}. Click a workload to view logs
+            and take action.
           </Typography>
         </Stack>
       )}
@@ -528,6 +528,7 @@ export function SystemDrillDown() {
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
         {systemWorkloads.map(w => {
           const name: string = w?.metadata?.name ?? 'unknown';
+          const ns: string = w?.metadata?.namespace ?? 'default';
           const kind: string = w?.kind ?? 'Workload';
           const status = replicaWorkloadStatus(w);
           const ready = w?.status?.readyReplicas ?? 0;
@@ -535,9 +536,16 @@ export function SystemDrillDown() {
           const created = w?.metadata?.creationTimestamp as string | undefined;
           const age = formatResourceAge(created);
           const key = `${kind}-${w?.metadata?.uid ?? name}`;
+          const kindPath = kind === 'StatefulSet' ? 'statefulsets' : 'deployments';
+          const detailUrl = withClusterPrefix(`/${kindPath}/${ns}/${name}`, location.pathname);
+          const needsAttention = status === 'Degraded' || status === 'Offline';
           return (
             <Box
               key={key}
+              role="button"
+              tabIndex={0}
+              onClick={() => history.push(detailUrl)}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') history.push(detailUrl); }}
               sx={{
                 border: 1,
                 borderColor: statusBorderColor(theme, status),
@@ -548,6 +556,16 @@ export function SystemDrillDown() {
                 justifyContent: 'space-between',
                 alignItems: 'center',
                 gap: 2,
+                cursor: 'pointer',
+                transition: 'box-shadow 0.15s, transform 0.15s',
+                '&:hover': {
+                  boxShadow: 3,
+                  transform: 'translateY(-1px)',
+                },
+                '&:focus-visible': {
+                  outline: `2px solid ${theme.palette.primary.main}`,
+                  outlineOffset: 2,
+                },
               }}
             >
               <Box>
@@ -561,8 +579,16 @@ export function SystemDrillDown() {
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
                   {ready} / {desired} ready
                 </Typography>
+                {needsAttention && (
+                  <Typography variant="caption" color="warning.main" sx={{ mt: 0.5, display: 'block', fontWeight: 600 }}>
+                    Needs attention — click to investigate
+                  </Typography>
+                )}
               </Box>
-              <StatusBadge status={status} />
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
+                <StatusBadge status={status} />
+                <Typography component="span" sx={{ fontSize: 12, color: 'text.disabled', lineHeight: 1 }}>›</Typography>
+              </Box>
             </Box>
           );
         })}
