@@ -25,6 +25,8 @@ const SIDEBAR_LABEL_MAP: Record<string, string> = {
   Secrets: 'Secrets',
   storage: 'Storage',
   Storage: 'Storage',
+  network: 'Network-connections',
+  Network: 'Network-connections',
 };
 
 // Sidebar entries to hide entirely in sailor mode. Keys are entry.name lowercased

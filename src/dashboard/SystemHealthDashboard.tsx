@@ -7,7 +7,7 @@ import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { alpha, useTheme, type Theme } from '@mui/material/styles';
-import { K8s } from '@kinvolk/headlamp-plugin/lib';
+import { K8s, ApiProxy } from '@kinvolk/headlamp-plugin/lib';
 import { useHistory, useLocation, useParams } from 'react-router-dom';
 import { withClusterPrefix } from '../lib/clusterPaths';
 import { getSettings } from '../settingsStore';
@@ -27,6 +27,9 @@ interface SystemSummary {
   pvcStatus: SystemStatus | null;
   restartCount: number;
   warningEventCount: number;
+  /** Restart-related event counts bucketed into the last 6 hours, oldest→newest. */
+  restartSparkline: number[];
+  isRestarting: boolean;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -39,6 +42,21 @@ function replicaWorkloadStatus(w: any): SystemStatus {
   if (ready === spec) return 'Running';
   if (ready > 0) return 'Degraded';
   return 'Offline';
+}
+
+/** True when a rolling update / restart is actively in progress. */
+function isRollingOut(w: any): boolean {
+  const desired = w?.spec?.replicas ?? 1;
+  if (desired === 0) return false;
+  // updatedReplicas < desired means not all pods are on the new template yet
+  const updated = w?.status?.updatedReplicas ?? desired;
+  if (updated < desired) return true;
+  // Deployment-specific: Progressing condition with ReplicaSetUpdated reason
+  if (w?.kind === 'Deployment') {
+    const progressing = (w?.status?.conditions ?? []).find((c: any) => c.type === 'Progressing');
+    if (progressing?.status === 'True' && progressing?.reason === 'ReplicaSetUpdated') return true;
+  }
+  return false;
 }
 
 function healthHiddenNamespaceSet(hidden: string[]): Set<string> {
@@ -266,12 +284,26 @@ export function SystemHealthDashboard() {
     restartsByNs[ns] = (restartsByNs[ns] ?? 0) + restarts;
   }
 
-  // Warning event count per namespace (recent Warning-type events)
+  // Warning event count + restart sparkline per namespace
   const warningsByNs: Record<string, number> = {};
+  const RESTART_REASONS = new Set(['BackOff', 'CrashLoopBackOff', 'OOMKilling', 'Killing']);
+  const SPARKLINE_HOURS = 6;
+  const nowMs = Date.now();
+  // sparklineBucketsByNs[ns] = array of 6 counts, index 0 = oldest hour
+  const sparklineBucketsByNs: Record<string, number[]> = {};
   for (const ev of events ?? []) {
     if (ev?.type !== 'Warning') continue;
     const ns: string = ev?.involvedObject?.namespace ?? ev?.metadata?.namespace ?? 'default';
     warningsByNs[ns] = (warningsByNs[ns] ?? 0) + 1;
+    if (RESTART_REASONS.has(ev?.reason)) {
+      const ts = new Date(ev?.lastTimestamp ?? ev?.metadata?.creationTimestamp ?? 0).getTime();
+      const hoursAgo = (nowMs - ts) / 3_600_000;
+      if (hoursAgo >= 0 && hoursAgo < SPARKLINE_HOURS) {
+        const bucket = SPARKLINE_HOURS - 1 - Math.floor(hoursAgo); // 0=oldest, 5=newest
+        if (!sparklineBucketsByNs[ns]) sparklineBucketsByNs[ns] = new Array(SPARKLINE_HOURS).fill(0);
+        sparklineBucketsByNs[ns][bucket] += ev?.count ?? 1;
+      }
+    }
   }
 
   // ── Node health ──────────────────────────────────────────────────────────────
@@ -306,6 +338,8 @@ export function SystemHealthDashboard() {
         pvcStatus,
         restartCount: restartsByNs[ns] ?? 0,
         warningEventCount: warningsByNs[ns] ?? 0,
+        restartSparkline: sparklineBucketsByNs[ns] ?? new Array(SPARKLINE_HOURS).fill(0),
+        isRestarting: workloads.some(isRollingOut),
       };
     });
 
@@ -520,11 +554,33 @@ export function SystemHealthDashboard() {
                   {namesPreview}
                 </Typography>
               )}
-              <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.75 }}>
-                {parts} workload{parts !== 1 ? 's' : ''} · View list
-              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.75 }}>
+                <Typography variant="caption" color="text.secondary">
+                  {parts} workload{parts !== 1 ? 's' : ''} · View list
+                </Typography>
+                {sys.isRestarting && (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <Box
+                      sx={{
+                        width: 7,
+                        height: 7,
+                        borderRadius: '50%',
+                        bgcolor: 'info.main',
+                        '@keyframes pulse': {
+                          '0%, 100%': { opacity: 1 },
+                          '50%': { opacity: 0.25 },
+                        },
+                        animation: 'pulse 1.2s ease-in-out infinite',
+                      }}
+                    />
+                    <Typography variant="caption" color="info.main" fontWeight={600}>
+                      Restarting…
+                    </Typography>
+                  </Box>
+                )}
+              </Box>
               {(sys.restartCount > 0 || sys.warningEventCount > 0) && (
-                <Stack direction="row" spacing={0.75} sx={{ mt: 1, flexWrap: 'wrap' }} useFlexGap>
+                <Stack direction="row" spacing={0.75} sx={{ mt: 1, flexWrap: 'wrap', alignItems: 'center' }} useFlexGap>
                   {sys.restartCount > 0 && (
                     <Chip
                       label={`${sys.restartCount} restart${sys.restartCount !== 1 ? 's' : ''}`}
@@ -540,6 +596,12 @@ export function SystemHealthDashboard() {
                       color="error"
                       variant="outlined"
                       sx={{ fontWeight: 600, fontSize: '0.7rem', height: 20 }}
+                    />
+                  )}
+                  {sys.restartSparkline.some(v => v > 0) && (
+                    <RestartSparkline
+                      buckets={sys.restartSparkline}
+                      color={theme.palette.warning.main}
                     />
                   )}
                 </Stack>
@@ -561,6 +623,8 @@ export function SystemDrillDown() {
   const [deployments, deployError] = K8s.ResourceClasses.Deployment.useList();
   const [statefulSets, stsError] = K8s.ResourceClasses.StatefulSet.useList();
   const [pvcs, pvcError] = K8s.ResourceClasses.PersistentVolumeClaim.useList();
+  const DrillEventClass = (K8s.event as any).default;
+  const [allEvents] = DrillEventClass.useList();
   const history = useHistory();
   const location = useLocation();
   const settings = getSettings();
@@ -609,6 +673,16 @@ export function SystemDrillDown() {
     .filter(pvc => matchesSystem(pvc?.metadata?.namespace ?? 'default'))
     .sort((a, b) => (a?.metadata?.name ?? '').localeCompare(b?.metadata?.name ?? ''));
 
+  const systemWarnings = (allEvents ?? [])
+    .filter((ev: any) => ev?.type === 'Warning')
+    .filter((ev: any) => matchesSystem(ev?.involvedObject?.namespace ?? ev?.metadata?.namespace ?? ''))
+    .sort((a: any, b: any) => {
+      const ta = new Date(a?.lastTimestamp ?? a?.metadata?.creationTimestamp ?? 0).getTime();
+      const tb = new Date(b?.lastTimestamp ?? b?.metadata?.creationTimestamp ?? 0).getTime();
+      return tb - ta;
+    })
+    .slice(0, 10);
+
   const backUrl = withClusterPrefix('/sailor-view/dashboard', location.pathname);
 
   return (
@@ -653,72 +727,14 @@ export function SystemDrillDown() {
       )}
 
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-        {systemWorkloads.map(w => {
-          const name: string = w?.metadata?.name ?? 'unknown';
-          const ns: string = w?.metadata?.namespace ?? 'default';
-          const kind: string = w?.kind ?? 'Workload';
-          const status = replicaWorkloadStatus(w);
-          const ready = w?.status?.readyReplicas ?? 0;
-          const desired = w?.spec?.replicas ?? 1;
-          const created = w?.metadata?.creationTimestamp as string | undefined;
-          const age = formatResourceAge(created);
-          const key = `${kind}-${w?.metadata?.uid ?? name}`;
-          const kindPath = kind === 'StatefulSet' ? 'statefulsets' : 'deployments';
-          const detailUrl = withClusterPrefix(`/${kindPath}/${ns}/${name}`, location.pathname);
-          const needsAttention = status === 'Degraded' || status === 'Offline';
-          return (
-            <Box
-              key={key}
-              role="button"
-              tabIndex={0}
-              onClick={() => history.push(detailUrl)}
-              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') history.push(detailUrl); }}
-              sx={{
-                border: 1,
-                borderColor: statusBorderColor(theme, status),
-                borderRadius: 2,
-                p: 2,
-                bgcolor: statusSurfaceColor(theme, status),
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                gap: 2,
-                cursor: 'pointer',
-                transition: 'box-shadow 0.15s, transform 0.15s',
-                '&:hover': {
-                  boxShadow: 3,
-                  transform: 'translateY(-1px)',
-                },
-                '&:focus-visible': {
-                  outline: `2px solid ${theme.palette.primary.main}`,
-                  outlineOffset: 2,
-                },
-              }}
-            >
-              <Box>
-                <Typography variant="subtitle1" fontWeight={600} color="text.primary">
-                  {name}
-                </Typography>
-                <Typography variant="caption" color="text.secondary" display="block">
-                  {kind}
-                  {age ? ` · age ${age}` : ''}
-                </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                  {ready} / {desired} ready
-                </Typography>
-                {needsAttention && (
-                  <Typography variant="caption" color="warning.main" sx={{ mt: 0.5, display: 'block', fontWeight: 600 }}>
-                    Needs attention — click to investigate
-                  </Typography>
-                )}
-              </Box>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
-                <StatusBadge status={status} />
-                <Typography component="span" sx={{ fontSize: 12, color: 'text.disabled', lineHeight: 1 }}>›</Typography>
-              </Box>
-            </Box>
-          );
-        })}
+        {systemWorkloads.map(w => (
+          <WorkloadCard
+            key={`${w?.kind}-${w?.metadata?.uid ?? w?.metadata?.name}`}
+            workload={w}
+            onNavigate={url => history.push(url)}
+            currentPathname={location.pathname}
+          />
+        ))}
       </Box>
 
       {systemPVCs.length > 0 && (
@@ -788,6 +804,255 @@ export function SystemDrillDown() {
           </Box>
         </Box>
       )}
+
+      {systemWarnings.length > 0 && (
+        <Box sx={{ mt: 4 }}>
+          <Typography variant="h6" fontWeight={700} sx={{ mb: 1.5 }}>
+            Recent Warnings
+          </Typography>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            {systemWarnings.map((ev: any, i: number) => {
+              const reason: string = ev?.reason ?? 'Unknown';
+              const message: string = ev?.message ?? '';
+              const involvedName: string = ev?.involvedObject?.name ?? '';
+              const involvedKind: string = ev?.involvedObject?.kind ?? '';
+              const involvedNs: string = ev?.involvedObject?.namespace ?? ev?.metadata?.namespace ?? '';
+              const count: number = ev?.count ?? 1;
+              const lastSeen: string = formatResourceAge(ev?.lastTimestamp ?? ev?.metadata?.creationTimestamp);
+              const kindPath = involvedKind === 'Pod' ? 'pods'
+                : involvedKind === 'StatefulSet' ? 'statefulsets'
+                : involvedKind === 'ReplicaSet' ? 'replicasets'
+                : 'deployments';
+              const involvedUrl = involvedName && involvedNs
+                ? withClusterPrefix(`/${kindPath}/${involvedNs}/${involvedName}`, location.pathname)
+                : null;
+              const key = ev?.metadata?.uid ?? `${reason}-${i}`;
+              return (
+                <Box
+                  key={key}
+                  role={involvedUrl ? 'button' : undefined}
+                  tabIndex={involvedUrl ? 0 : undefined}
+                  onClick={involvedUrl ? () => history.push(involvedUrl) : undefined}
+                  onKeyDown={involvedUrl ? (e => { if (e.key === 'Enter' || e.key === ' ') history.push(involvedUrl); }) : undefined}
+                  sx={{
+                    border: 1,
+                    borderColor: alpha(theme.palette.warning.main, 0.4),
+                    borderRadius: 2,
+                    p: 1.5,
+                    bgcolor: alpha(theme.palette.warning.main, theme.palette.mode === 'dark' ? 0.08 : 0.05),
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'flex-start',
+                    gap: 2,
+                    ...(involvedUrl ? {
+                      cursor: 'pointer',
+                      transition: 'box-shadow 0.15s, transform 0.15s',
+                      '&:hover': { boxShadow: 3, transform: 'translateY(-1px)' },
+                      '&:focus-visible': { outline: `2px solid ${theme.palette.primary.main}`, outlineOffset: 2 },
+                    } : {}),
+                  }}
+                >
+                  <Box sx={{ minWidth: 0, flex: 1 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 0.25 }}>
+                      <Chip label={reason} size="small" color="warning" sx={{ fontWeight: 600, fontSize: '0.7rem', height: 20 }} />
+                      {involvedName && (
+                        <Typography variant="caption" fontWeight={600} color="text.primary">
+                          {involvedKind}/{involvedName}
+                        </Typography>
+                      )}
+                    </Box>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, wordBreak: 'break-word' }}>
+                      {message}
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', flexShrink: 0, gap: 0.5 }}>
+                    <Typography variant="caption" color="text.disabled" sx={{ whiteSpace: 'nowrap' }}>
+                      {lastSeen ? `${lastSeen} ago` : ''}
+                    </Typography>
+                    {count > 1 && (
+                      <Typography variant="caption" color="text.disabled">
+                        ×{count}
+                      </Typography>
+                    )}
+                    {involvedUrl && (
+                      <Typography component="span" sx={{ fontSize: 12, color: 'text.disabled', lineHeight: 1 }}>›</Typography>
+                    )}
+                  </Box>
+                </Box>
+              );
+            })}
+          </Box>
+        </Box>
+      )}
+    </Box>
+  );
+}
+
+// ── RestartSparkline ──────────────────────────────────────────────────────────
+
+function RestartSparkline({ buckets, color }: { buckets: number[]; color: string }) {
+  const W = 48, H = 20, pad = 2;
+  const max = Math.max(...buckets, 1);
+  const n = buckets.length;
+  const points = buckets.map((v, i) => {
+    const x = pad + (i / (n - 1)) * (W - pad * 2);
+    const y = H - pad - ((v / max) * (H - pad * 2));
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  return (
+    <Box component="span" title={`Restart events last 6h: ${buckets.join(', ')}`}>
+      <svg width={W} height={H} style={{ display: 'block', overflow: 'visible' }}>
+        <polyline points={points} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+        {buckets.map((v, i) => v > 0 ? (
+          <circle
+            key={i}
+            cx={pad + (i / (n - 1)) * (W - pad * 2)}
+            cy={H - pad - ((v / max) * (H - pad * 2))}
+            r="2"
+            fill={color}
+          />
+        ) : null)}
+      </svg>
+    </Box>
+  );
+}
+
+// ── WorkloadCard ─────────────────────────────────────────────────────────────
+
+function WorkloadCard({
+  workload: w,
+  onNavigate,
+  currentPathname,
+}: {
+  workload: any;
+  onNavigate: (url: string) => void;
+  currentPathname: string;
+}) {
+  const theme = useTheme();
+  const [restartState, setRestartState] = useState<'idle' | 'confirm' | 'loading' | 'done' | 'error'>('idle');
+  const [restartMsg, setRestartMsg] = useState('');
+
+  const name: string = w?.metadata?.name ?? 'unknown';
+  const ns: string = w?.metadata?.namespace ?? 'default';
+  const kind: string = w?.kind ?? 'Workload';
+  const status = replicaWorkloadStatus(w);
+  const ready = w?.status?.readyReplicas ?? 0;
+  const desired = w?.spec?.replicas ?? 1;
+  const age = formatResourceAge(w?.metadata?.creationTimestamp as string | undefined);
+  const kindPath = kind === 'StatefulSet' ? 'statefulsets' : 'deployments';
+  const detailUrl = withClusterPrefix(`/${kindPath}/${ns}/${name}`, currentPathname);
+  const needsAttention = status === 'Degraded' || status === 'Offline';
+  const rollingOut = isRollingOut(w);
+
+  async function handleRestart() {
+    if (restartState === 'idle' || restartState === 'done' || restartState === 'error') {
+      setRestartState('confirm');
+      // Auto-cancel confirm after 4s
+      setTimeout(() => setRestartState(s => s === 'confirm' ? 'idle' : s), 4000);
+      return;
+    }
+    if (restartState === 'confirm') {
+      setRestartState('loading');
+      try {
+        const apiGroup = 'apps/v1';
+        const path = `/apis/apps/v1/namespaces/${ns}/${kindPath}/${name}`;
+        await ApiProxy.patch(path, {
+          spec: {
+            template: {
+              metadata: {
+                annotations: { 'kubectl.kubernetes.io/restartedAt': new Date().toISOString() },
+              },
+            },
+          },
+        });
+        setRestartState('done');
+        setRestartMsg('Restart triggered');
+        setTimeout(() => setRestartState('idle'), 3000);
+      } catch (e: any) {
+        setRestartState('error');
+        setRestartMsg(e?.message ?? 'Restart failed');
+        setTimeout(() => setRestartState('idle'), 4000);
+      }
+    }
+  }
+
+  const restartLabel =
+    restartState === 'confirm' ? 'Confirm?' :
+    restartState === 'loading' ? 'Restarting…' :
+    restartState === 'done' ? 'Restarted ✓' :
+    restartState === 'error' ? 'Failed' :
+    'Restart';
+
+  const restartColor: 'warning' | 'error' | 'success' | 'inherit' =
+    restartState === 'confirm' ? 'warning' :
+    restartState === 'error' ? 'error' :
+    restartState === 'done' ? 'success' :
+    'inherit';
+
+  return (
+    <Box
+      role="button"
+      tabIndex={0}
+      onClick={() => onNavigate(detailUrl)}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') onNavigate(detailUrl); }}
+      sx={{
+        border: 1,
+        borderColor: statusBorderColor(theme, status),
+        borderRadius: 2,
+        p: 2,
+        bgcolor: statusSurfaceColor(theme, status),
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: 2,
+        cursor: 'pointer',
+        transition: 'box-shadow 0.15s, transform 0.15s',
+        '&:hover': { boxShadow: 3, transform: 'translateY(-1px)' },
+        '&:focus-visible': { outline: `2px solid ${theme.palette.primary.main}`, outlineOffset: 2 },
+      }}
+    >
+      <Box>
+        <Typography variant="subtitle1" fontWeight={600} color="text.primary">{name}</Typography>
+        <Typography variant="caption" color="text.secondary" display="block">
+          {kind}{age ? ` · age ${age}` : ''}
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+          {ready} / {desired} ready
+        </Typography>
+        {needsAttention && (
+          <Typography variant="caption" color="warning.main" sx={{ mt: 0.5, display: 'block', fontWeight: 600 }}>
+            Needs attention — click to investigate
+          </Typography>
+        )}
+        {rollingOut && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
+            <Box sx={{
+              width: 7, height: 7, borderRadius: '50%', bgcolor: 'info.main',
+              '@keyframes pulse': { '0%, 100%': { opacity: 1 }, '50%': { opacity: 0.25 } },
+              animation: 'pulse 1.2s ease-in-out infinite',
+            }} />
+            <Typography variant="caption" color="info.main" fontWeight={600}>Restarting…</Typography>
+          </Box>
+        )}
+        {restartState === 'error' && (
+          <Typography variant="caption" color="error.main" sx={{ mt: 0.5, display: 'block' }}>{restartMsg}</Typography>
+        )}
+      </Box>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
+        <Button
+          size="small"
+          variant={restartState === 'confirm' ? 'contained' : 'outlined'}
+          color={restartColor}
+          disabled={restartState === 'loading'}
+          onClick={e => { e.stopPropagation(); handleRestart(); }}
+          onKeyDown={e => e.stopPropagation()}
+          sx={{ minWidth: 80, fontSize: '0.72rem' }}
+        >
+          {restartLabel}
+        </Button>
+        <StatusBadge status={status} />
+        <Typography component="span" sx={{ fontSize: 12, color: 'text.disabled', lineHeight: 1 }}>›</Typography>
+      </Box>
     </Box>
   );
 }
