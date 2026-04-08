@@ -12,6 +12,7 @@ import {
   registerDetailsViewSectionsProcessor,
 } from '@kinvolk/headlamp-plugin/lib';
 import { getSettings } from './settingsStore';
+import { TroubleshootingSection } from './troubleshooting/TroubleshootingPanel';
 
 /**
  * Extra detail sections to drop in sailor view (ids from Headlamp’s Details.tsx / workload views).
@@ -89,6 +90,14 @@ function sailorDetailsSectionsProcessor(resource: any, sections: any[]) {
       return patchMetadataSection(sec, resource);
     }
     return sec;
+  });
+
+  // Insert TroubleshootingSection right after MAIN_HEADER
+  const mainHeaderIdx = next.findIndex(sec => sec?.id === DefaultDetailsViewSection.MAIN_HEADER);
+  const insertAt = mainHeaderIdx >= 0 ? mainHeaderIdx + 1 : 0;
+  next.splice(insertAt, 0, {
+    id: 'sailor-view.troubleshooting',
+    section: React.createElement(TroubleshootingSection, { resource }),
   });
 
   return next;

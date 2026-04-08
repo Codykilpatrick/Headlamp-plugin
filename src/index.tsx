@@ -3,7 +3,6 @@ import {
   registerSidebarEntry,
   registerSidebarEntryFilter,
   registerResourceTableColumnsProcessor,
-  registerDetailsViewSection,
   registerRouteFilter,
   registerPluginSettings,
   registerUIPanel,
@@ -17,7 +16,6 @@ import { SettingsPage } from './settings';
 import { SailorLandingRedirect } from './dashboard/SailorLandingRedirect';
 import { SystemHealthDashboard, SystemDrillDown } from './dashboard/SystemHealthDashboard';
 import { makeTerminologyFilters } from './terminology';
-import { TroubleshootingSection } from './troubleshooting/TroubleshootingPanel';
 import { makeComplexityFilters } from './complexity';
 import { registerSailorDetailsView } from './sailorDetailsView';
 
@@ -63,9 +61,6 @@ registerUIPanel({
 const { sidebarFilter: terminologySidebarFilter, columnProcessor } = makeTerminologyFilters();
 registerSidebarEntryFilter(terminologySidebarFilter);
 registerResourceTableColumnsProcessor(columnProcessor);
-
-// ── Feature 3: Guided Troubleshooting Panel ──────────────────────────────────
-registerDetailsViewSection(TroubleshootingSection);
 
 // Sailor view: hide Container spec blocks + trim deployment revision / last-applied annotations
 registerSailorDetailsView();

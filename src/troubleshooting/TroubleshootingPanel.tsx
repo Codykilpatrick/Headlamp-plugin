@@ -164,6 +164,56 @@ function diagnose(resource: any): Diagnosis {
     }
   }
 
+  // ── Node-specific conditions ──
+  if (kind === 'Node') {
+    const ready = conditions.find(c => c.type === 'Ready');
+    const memPressure = conditions.find(c => c.type === 'MemoryPressure')?.status === 'True';
+    const diskPressure = conditions.find(c => c.type === 'DiskPressure')?.status === 'True';
+    const pidPressure = conditions.find(c => c.type === 'PIDPressure')?.status === 'True';
+    const isCordoned = resource?.spec?.unschedulable === true;
+
+    if (ready?.status !== 'True') {
+      return {
+        severity: 'error',
+        summary: 'This machine is not responding.',
+        recommendation: 'The machine has lost contact with the cluster. Check network connectivity and whether the machine is powered on.',
+      };
+    }
+    if (memPressure) {
+      return {
+        severity: 'error',
+        summary: 'This machine is running low on memory.',
+        recommendation: 'Workloads may be evicted soon. Consider moving some workloads to other machines or adding more memory.',
+      };
+    }
+    if (diskPressure) {
+      return {
+        severity: 'error',
+        summary: 'This machine is running low on disk space.',
+        recommendation: 'Clear unused images and logs, or expand the disk. Workloads may be evicted if disk pressure continues.',
+      };
+    }
+    if (pidPressure) {
+      return {
+        severity: 'warn',
+        summary: 'This machine has too many running processes.',
+        recommendation: 'Too many processes are running on this machine. Some workloads may fail to start.',
+      };
+    }
+    if (isCordoned) {
+      return {
+        severity: 'warn',
+        summary: 'This machine is paused and not accepting new workloads.',
+        recommendation: 'The machine has been manually paused for maintenance. Use "Resume machine" in the dashboard to allow new workloads again.',
+      };
+    }
+    return {
+      severity: 'ok',
+      summary: 'This machine is healthy and accepting workloads.',
+      recommendation: 'All systems on this machine are operating normally.',
+    };
+  }
+
   // ── All clear ──
   return {
     severity: 'ok',
@@ -218,7 +268,7 @@ export function TroubleshootingSection({ resource }: { resource: any }) {
 
   // Only render for workload kinds; skip if feature disabled or admin mode
   const kind: string = resource?.kind ?? '';
-  const WORKLOAD_KINDS = new Set(['Deployment', 'Pod', 'StatefulSet', 'DaemonSet', 'ReplicaSet', 'Job', 'CronJob']);
+  const WORKLOAD_KINDS = new Set(['Deployment', 'Pod', 'StatefulSet', 'DaemonSet', 'ReplicaSet', 'Job', 'CronJob', 'Node']);
   if (!WORKLOAD_KINDS.has(kind)) return null;
   if (!settings.enableTroubleshooting) return null;
 
@@ -232,7 +282,6 @@ export function TroubleshootingSection({ resource }: { resource: any }) {
   function buildCopyText(): string {
     const name = resource?.metadata?.name ?? 'unknown';
     const ns = resource?.metadata?.namespace ?? '';
-    const containers: ContainerStatus[] = resource?.status?.containerStatuses ?? [];
     const lines = [
       `What's happening? — ${kind}: ${ns ? `${ns}/` : ''}${name}`,
       `Status: ${chip.label}`,
@@ -240,14 +289,26 @@ export function TroubleshootingSection({ resource }: { resource: any }) {
       `Summary: ${summary}`,
       `Recommended action: ${recommendation}`,
     ];
-    if (containers.length > 0) {
-      lines.push('', 'Containers:');
-      for (const cs of containers) {
-        const state = cs.state?.running
-          ? 'Running'
-          : cs.state?.waiting?.reason ?? cs.state?.terminated?.reason ?? 'Unknown';
-        const restarts = cs.restartCount ?? 0;
-        lines.push(`  ${cs.name}: ${state}${restarts > 0 ? ` (${restarts} restart${restarts !== 1 ? 's' : ''})` : ''}`);
+    if (kind === 'Node') {
+      const info = resource?.status?.nodeInfo ?? {};
+      const addresses = resource?.status?.addresses ?? [];
+      const hostname = addresses.find((a: any) => a.type === 'Hostname')?.address;
+      if (hostname) lines.push('', `Hostname: ${hostname}`);
+      if (info.osImage) lines.push(`OS: ${info.osImage}`);
+      if (info.kernelVersion) lines.push(`Kernel: ${info.kernelVersion}`);
+      if (info.containerRuntimeVersion) lines.push(`Runtime: ${info.containerRuntimeVersion}`);
+      if (info.kubeletVersion) lines.push(`Kubelet: ${info.kubeletVersion}`);
+    } else {
+      const containers: ContainerStatus[] = resource?.status?.containerStatuses ?? [];
+      if (containers.length > 0) {
+        lines.push('', 'Containers:');
+        for (const cs of containers) {
+          const state = cs.state?.running
+            ? 'Running'
+            : cs.state?.waiting?.reason ?? cs.state?.terminated?.reason ?? 'Unknown';
+          const restarts = cs.restartCount ?? 0;
+          lines.push(`  ${cs.name}: ${state}${restarts > 0 ? ` (${restarts} restart${restarts !== 1 ? 's' : ''})` : ''}`);
+        }
       }
     }
     return lines.join('\n');
@@ -301,7 +362,7 @@ export function TroubleshootingSection({ resource }: { resource: any }) {
         {recommendation}
       </Typography>
 
-      <ContainerSummary resource={resource} />
+      {kind === 'Node' ? <NodeInfoSummary resource={resource} /> : <ContainerSummary resource={resource} />}
 
       <Button
         variant="outlined"
@@ -340,6 +401,69 @@ export function TroubleshootingSection({ resource }: { resource: any }) {
       )}
     </Box>
     </>
+  );
+}
+
+// ── Node info summary sub-component ─────────────────────────────────────────
+
+function formatNodeCPU(raw: string): string {
+  if (!raw) return '';
+  if (raw.endsWith('m')) return `${(parseInt(raw, 10) / 1000).toFixed(1)} cores`;
+  return `${raw} cores`;
+}
+
+function formatNodeMemory(raw: string): string {
+  if (!raw) return '';
+  if (raw.endsWith('Ki')) {
+    const ki = parseInt(raw, 10);
+    const gib = ki / (1024 * 1024);
+    return gib >= 1 ? `${gib.toFixed(1)} GiB` : `${(ki / 1024).toFixed(0)} MiB`;
+  }
+  return raw;
+}
+
+function NodeInfoSummary({ resource }: { resource: any }) {
+  const info = resource?.status?.nodeInfo ?? {};
+  const addresses: { type: string; address: string }[] = resource?.status?.addresses ?? [];
+  const allocatable = resource?.status?.allocatable ?? {};
+  const labels: Record<string, string> = resource?.metadata?.labels ?? {};
+
+  const roles: string[] = [];
+  if ('node-role.kubernetes.io/control-plane' in labels || 'node-role.kubernetes.io/master' in labels) {
+    roles.push('Control plane');
+  }
+  if ('node-role.kubernetes.io/worker' in labels || roles.length === 0) {
+    roles.push('Worker');
+  }
+
+  const hostname = addresses.find(a => a.type === 'Hostname')?.address ?? '';
+  const internalIP = addresses.find(a => a.type === 'InternalIP')?.address ?? '';
+  const cpu = formatNodeCPU(allocatable.cpu ?? '');
+  const mem = formatNodeMemory(allocatable.memory ?? '');
+
+  const rows: [string, string][] = [
+    ...(hostname ? [['Hostname', hostname] as [string, string]] : []),
+    ...(internalIP ? [['IP address', internalIP] as [string, string]] : []),
+    ...(roles.length ? [['Role', roles.join(', ')] as [string, string]] : []),
+    ...(info.osImage ? [['Operating system', info.osImage] as [string, string]] : []),
+    ...(info.kernelVersion ? [['Kernel', info.kernelVersion] as [string, string]] : []),
+    ...(info.containerRuntimeVersion ? [['Container runtime', info.containerRuntimeVersion] as [string, string]] : []),
+    ...(info.kubeletVersion ? [['Kubelet version', info.kubeletVersion] as [string, string]] : []),
+    ...(cpu ? [['CPU available', cpu] as [string, string]] : []),
+    ...(mem ? [['Memory available', mem] as [string, string]] : []),
+  ];
+
+  if (rows.length === 0) return null;
+
+  return (
+    <Box sx={{ mb: 1.5, display: 'grid', gridTemplateColumns: 'auto 1fr', columnGap: 3, rowGap: 0.4 }}>
+      {rows.map(([label, value]) => (
+        <React.Fragment key={label}>
+          <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>{label}</Typography>
+          <Typography variant="body2" color="text.secondary">{value}</Typography>
+        </React.Fragment>
+      ))}
+    </Box>
   );
 }
 

@@ -872,6 +872,8 @@ function nodeConditionTrue(node: any, type: string): boolean {
 
 function NodeCard({ node }: { node: any }) {
   const theme = useTheme();
+  const history = useHistory();
+  const location = useLocation();
   const [cordonState, setCordonState] = useState<'idle' | 'confirm' | 'loading' | 'done' | 'error'>('idle');
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -881,6 +883,12 @@ function NodeCard({ node }: { node: any }) {
   const memPressure = nodeConditionTrue(node, 'MemoryPressure');
   const diskPressure = nodeConditionTrue(node, 'DiskPressure');
   const pidPressure = nodeConditionTrue(node, 'PIDPressure');
+
+  const labels: Record<string, string> = node?.metadata?.labels ?? {};
+  const isControlPlane = 'node-role.kubernetes.io/control-plane' in labels || 'node-role.kubernetes.io/master' in labels;
+  const roleLabel = isControlPlane ? 'Control plane' : 'Worker';
+  const addresses: { type: string; address: string }[] = node?.status?.addresses ?? [];
+  const hostname = addresses.find(a => a.type === 'Hostname')?.address ?? '';
 
   const pressures: string[] = [
     ...(memPressure ? ['Low memory'] : []),
@@ -921,8 +929,12 @@ function NodeCard({ node }: { node: any }) {
     cordonState === 'error' ? 'Failed' :
     isCordoned ? 'Resume machine' : 'Pause machine';
 
+  const nodePath = withClusterPrefix(`/nodes/${name}`, location.pathname);
+  const isCurrent = location.pathname === nodePath;
+
   return (
     <Box
+      onClick={() => { if (!isCurrent) history.push(nodePath); }}
       sx={{
         border: 1,
         borderColor: isCordoned
@@ -939,18 +951,30 @@ function NodeCard({ node }: { node: any }) {
         justifyContent: 'space-between',
         alignItems: 'flex-start',
         gap: 2,
+        cursor: isCurrent ? 'default' : 'pointer',
+        '&:hover': !isCurrent ? { bgcolor: alpha(dotColor, theme.palette.mode === 'dark' ? 0.14 : 0.09) } : {},
       }}
     >
       <Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5, flexWrap: 'wrap' }}>
           <Box sx={{ width: 9, height: 9, borderRadius: '50%', flexShrink: 0, bgcolor: dotColor }} />
           <Typography variant="subtitle2" fontWeight={700} color="text.primary">
             {name}
           </Typography>
+          <Chip
+            label={roleLabel}
+            size="small"
+            sx={{ fontWeight: 600, fontSize: '0.65rem', height: 18, bgcolor: alpha(theme.palette.text.primary, 0.08) }}
+          />
           {isCordoned && (
             <Chip label="Paused" size="small" color="warning" sx={{ fontWeight: 600, fontSize: '0.7rem', height: 20 }} />
           )}
         </Box>
+        {hostname && hostname !== name && (
+          <Typography variant="caption" color="text.disabled" display="block" sx={{ mb: 0.25 }}>
+            {hostname}
+          </Typography>
+        )}
         <Typography variant="caption" color={isReady ? 'text.secondary' : 'error.main'} display="block">
           {isReady ? 'Ready' : 'Not responding'}
         </Typography>
@@ -966,16 +990,20 @@ function NodeCard({ node }: { node: any }) {
           <Typography variant="caption" color="error.main" display="block" sx={{ mt: 0.5 }}>{errorMsg}</Typography>
         )}
       </Box>
-      <Button
-        size="small"
-        variant={cordonState === 'confirm' ? 'contained' : 'outlined'}
-        color={cordonState === 'confirm' ? 'warning' : cordonState === 'error' ? 'error' : cordonState === 'done' ? 'success' : 'inherit'}
-        disabled={cordonState === 'loading'}
-        onClick={handleCordon}
-        sx={{ minWidth: 130, fontSize: '0.72rem', flexShrink: 0 }}
-      >
-        {cordonLabel}
-      </Button>
+      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1, flexShrink: 0 }}>
+        <Button
+          size="small"
+          variant={cordonState === 'confirm' ? 'contained' : 'outlined'}
+          color={cordonState === 'confirm' ? 'warning' : cordonState === 'error' ? 'error' : cordonState === 'done' ? 'success' : 'inherit'}
+          disabled={cordonState === 'loading'}
+          onClick={e => { e.stopPropagation(); handleCordon(); }}
+          onKeyDown={e => e.stopPropagation()}
+          sx={{ minWidth: 130, fontSize: '0.72rem' }}
+        >
+          {cordonLabel}
+        </Button>
+        <Typography component="span" sx={{ fontSize: '1rem', color: 'text.disabled', lineHeight: 1, userSelect: 'none' }}>›</Typography>
+      </Box>
     </Box>
   );
 }
