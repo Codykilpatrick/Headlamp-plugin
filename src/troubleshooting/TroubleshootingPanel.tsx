@@ -97,6 +97,16 @@ function diagnose(resource: any): Diagnosis {
     };
   }
 
+  // ── Stopped (scaled to 0) ──
+  if ((kind === 'Deployment' || kind === 'StatefulSet') && (resource?.spec?.replicas ?? -1) === 0) {
+    const prev = resource?.metadata?.annotations?.['sailor-view/previous-replicas'];
+    return {
+      severity: 'warn',
+      summary: `This system has been stopped${prev ? ` (was running ${prev} component${parseInt(prev, 10) !== 1 ? 's' : ''})` : ''}.`,
+      recommendation: 'Use the Start button to bring it back online.',
+    };
+  }
+
   // ── Deployment-specific conditions ──
   if (kind === 'Deployment') {
     const available = conditions.find(c => c.type === 'Available');
@@ -251,6 +261,10 @@ export function TroubleshootingSection({ resource }: { resource: any }) {
   }
 
   return (
+    <>
+    <Typography variant="h6" sx={{ fontWeight: 700, mb: 1.5, color: 'text.primary' }}>
+      System Status
+    </Typography>
     <Box
       sx={{
         border: 2,
@@ -325,6 +339,7 @@ export function TroubleshootingSection({ resource }: { resource: any }) {
         </Box>
       )}
     </Box>
+    </>
   );
 }
 

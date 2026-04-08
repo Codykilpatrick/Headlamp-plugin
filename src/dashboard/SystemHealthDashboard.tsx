@@ -322,7 +322,11 @@ export function SystemHealthDashboard() {
       const pvcStatus = pvcStatusByNs[ns] ?? null;
       const allStatuses: SystemStatus[] = [...statuses, ...(pvcStatus ? [pvcStatus] : [])];
       const readyCount = workloads.reduce((sum, w) => sum + (w?.status?.readyReplicas ?? 0), 0);
-      const totalCount = workloads.reduce((sum, w) => sum + (w?.spec?.replicas ?? 1), 0);
+      const totalCount = workloads.reduce((sum, w) => {
+        const spec = w?.spec?.replicas ?? 0;
+        if (spec === 0) return sum + parseInt(w?.metadata?.annotations?.['sailor-view/previous-replicas'] ?? '1', 10);
+        return sum + spec;
+      }, 0);
       return {
         systemName: nsMap[ns] || ns,
         namespace: ns,
@@ -634,7 +638,11 @@ export function SystemDrillDown() {
     ...new Set(systemWorkloads.map(w => w?.metadata?.namespace).filter(Boolean) as string[]),
   ].sort();
   const aggReady = systemWorkloads.reduce((s, w) => s + (w?.status?.readyReplicas ?? 0), 0);
-  const aggDesired = systemWorkloads.reduce((s, w) => s + (w?.spec?.replicas ?? 1), 0);
+  const aggDesired = systemWorkloads.reduce((s, w) => {
+    const spec = w?.spec?.replicas ?? 0;
+    if (spec === 0) return s + parseInt(w?.metadata?.annotations?.['sailor-view/previous-replicas'] ?? '1', 10);
+    return s + spec;
+  }, 0);
 
   const systemPVCs = (pvcs ?? [])
     .filter(pvc => !isNamespaceHiddenFromHealth(pvc?.metadata?.namespace ?? 'default', hiddenNs))
@@ -1032,6 +1040,8 @@ function RestartSparkline({ buckets, color }: { buckets: number[]; color: string
 
 // ── WorkloadCard ─────────────────────────────────────────────────────────────
 
+type ActionState = 'idle' | 'confirm' | 'loading' | 'done' | 'error';
+
 function WorkloadCard({
   workload: w,
   onNavigate,
@@ -1042,65 +1052,99 @@ function WorkloadCard({
   currentPathname: string;
 }) {
   const theme = useTheme();
-  const [restartState, setRestartState] = useState<'idle' | 'confirm' | 'loading' | 'done' | 'error'>('idle');
-  const [restartMsg, setRestartMsg] = useState('');
+  const [restartState, setRestartState] = useState<ActionState>('idle');
+  const [stopState, setStopState] = useState<ActionState>('idle');
+  const [actionError, setActionError] = useState('');
 
   const name: string = w?.metadata?.name ?? 'unknown';
   const ns: string = w?.metadata?.namespace ?? 'default';
   const kind: string = w?.kind ?? 'Workload';
   const status = replicaWorkloadStatus(w);
   const ready = w?.status?.readyReplicas ?? 0;
-  const desired = w?.spec?.replicas ?? 1;
+  const desired = w?.spec?.replicas ?? 0;
+  const isStopped = desired === 0;
   const age = formatResourceAge(w?.metadata?.creationTimestamp as string | undefined);
   const kindPath = kind === 'StatefulSet' ? 'statefulsets' : 'deployments';
+  const apiPath = `/apis/apps/v1/namespaces/${ns}/${kindPath}/${name}`;
   const detailUrl = withClusterPrefix(`/${kindPath}/${ns}/${name}`, currentPathname);
   const needsAttention = status === 'Degraded' || status === 'Offline';
   const rollingOut = isRollingOut(w);
+  const previousReplicas = parseInt(w?.metadata?.annotations?.['sailor-view/previous-replicas'] ?? '1', 10);
 
-  async function handleRestart() {
-    if (restartState === 'idle' || restartState === 'done' || restartState === 'error') {
-      setRestartState('confirm');
-      // Auto-cancel confirm after 4s
-      setTimeout(() => setRestartState(s => s === 'confirm' ? 'idle' : s), 4000);
+  function armThenFire(
+    state: ActionState,
+    setState: React.Dispatch<React.SetStateAction<ActionState>>,
+    fire: () => Promise<void>
+  ) {
+    if (state === 'idle' || state === 'done' || state === 'error') {
+      setState('confirm');
+      setTimeout(() => setState(s => s === 'confirm' ? 'idle' : s), 4000);
       return;
     }
-    if (restartState === 'confirm') {
+    if (state === 'confirm') fire();
+  }
+
+  async function handleRestart() {
+    armThenFire(restartState, setRestartState, async () => {
       setRestartState('loading');
       try {
-        const apiGroup = 'apps/v1';
-        const path = `/apis/apps/v1/namespaces/${ns}/${kindPath}/${name}`;
-        await ApiProxy.patch(path, {
-          spec: {
-            template: {
-              metadata: {
-                annotations: { 'kubectl.kubernetes.io/restartedAt': new Date().toISOString() },
-              },
-            },
-          },
+        await ApiProxy.patch(apiPath, {
+          spec: { template: { metadata: { annotations: { 'kubectl.kubernetes.io/restartedAt': new Date().toISOString() } } } },
         });
         setRestartState('done');
-        setRestartMsg('Restart triggered');
         setTimeout(() => setRestartState('idle'), 3000);
       } catch (e: any) {
+        setActionError(e?.message ?? 'Restart failed');
         setRestartState('error');
-        setRestartMsg(e?.message ?? 'Restart failed');
         setTimeout(() => setRestartState('idle'), 4000);
       }
-    }
+    });
+  }
+
+  async function handleStopStart() {
+    armThenFire(stopState, setStopState, async () => {
+      setStopState('loading');
+      try {
+        if (isStopped) {
+          await ApiProxy.patch(apiPath, { spec: { replicas: previousReplicas } });
+        } else {
+          await ApiProxy.patch(apiPath, {
+            metadata: { annotations: { 'sailor-view/previous-replicas': String(desired) } },
+            spec: { replicas: 0 },
+          });
+        }
+        setStopState('done');
+        setTimeout(() => setStopState('idle'), 3000);
+      } catch (e: any) {
+        setActionError(e?.message ?? 'Action failed');
+        setStopState('error');
+        setTimeout(() => setStopState('idle'), 4000);
+      }
+    });
   }
 
   const restartLabel =
     restartState === 'confirm' ? 'Confirm?' :
     restartState === 'loading' ? 'Restarting…' :
     restartState === 'done' ? 'Restarted ✓' :
-    restartState === 'error' ? 'Failed' :
-    'Restart';
+    restartState === 'error' ? 'Failed' : 'Restart';
+
+  const stopLabel =
+    stopState === 'confirm' ? 'Confirm?' :
+    stopState === 'loading' ? (isStopped ? 'Starting…' : 'Stopping…') :
+    stopState === 'done' ? 'Done ✓' :
+    stopState === 'error' ? 'Failed' :
+    isStopped ? 'Start' : 'Stop';
+
+  const stopColor: 'warning' | 'error' | 'success' | 'inherit' =
+    stopState === 'confirm' ? 'warning' :
+    stopState === 'error' ? 'error' :
+    stopState === 'done' ? 'success' : 'inherit';
 
   const restartColor: 'warning' | 'error' | 'success' | 'inherit' =
     restartState === 'confirm' ? 'warning' :
     restartState === 'error' ? 'error' :
-    restartState === 'done' ? 'success' :
-    'inherit';
+    restartState === 'done' ? 'success' : 'inherit';
 
   return (
     <Box
@@ -1110,10 +1154,10 @@ function WorkloadCard({
       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') onNavigate(detailUrl); }}
       sx={{
         border: 1,
-        borderColor: statusBorderColor(theme, status),
+        borderColor: isStopped ? theme.palette.divider : statusBorderColor(theme, status),
         borderRadius: 2,
         p: 2,
-        bgcolor: statusSurfaceColor(theme, status),
+        bgcolor: isStopped ? alpha(theme.palette.text.primary, theme.palette.mode === 'dark' ? 0.06 : 0.04) : statusSurfaceColor(theme, status),
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
@@ -1129,10 +1173,14 @@ function WorkloadCard({
         <Typography variant="caption" color="text.secondary" display="block">
           {kind}{age ? ` · age ${age}` : ''}
         </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-          {ready} / {desired} ready
-        </Typography>
-        {needsAttention && (
+        {isStopped ? (
+          <Typography variant="body2" color="text.disabled" sx={{ mt: 0.5 }}>Stopped</Typography>
+        ) : (
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+            {ready} / {desired} ready
+          </Typography>
+        )}
+        {!isStopped && needsAttention && (
           <Typography variant="caption" color="warning.main" sx={{ mt: 0.5, display: 'block', fontWeight: 600 }}>
             Needs attention — click to investigate
           </Typography>
@@ -1147,24 +1195,42 @@ function WorkloadCard({
             <Typography variant="caption" color="info.main" fontWeight={600}>Restarting…</Typography>
           </Box>
         )}
-        {restartState === 'error' && (
-          <Typography variant="caption" color="error.main" sx={{ mt: 0.5, display: 'block' }}>{restartMsg}</Typography>
+        {(restartState === 'error' || stopState === 'error') && (
+          <Typography variant="caption" color="error.main" sx={{ mt: 0.5, display: 'block' }}>{actionError}</Typography>
         )}
       </Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
-        <Button
-          size="small"
-          variant={restartState === 'confirm' ? 'contained' : 'outlined'}
-          color={restartColor}
-          disabled={restartState === 'loading'}
-          onClick={e => { e.stopPropagation(); handleRestart(); }}
-          onKeyDown={e => e.stopPropagation()}
-          sx={{ minWidth: 80, fontSize: '0.72rem' }}
-        >
-          {restartLabel}
-        </Button>
-        <StatusBadge status={status} />
-        <Typography component="span" sx={{ fontSize: 12, color: 'text.disabled', lineHeight: 1 }}>›</Typography>
+      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 0.75, flexShrink: 0 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Button
+            size="small"
+            variant={stopState === 'confirm' ? 'contained' : 'outlined'}
+            color={stopColor}
+            disabled={stopState === 'loading'}
+            onClick={e => { e.stopPropagation(); handleStopStart(); }}
+            onKeyDown={e => e.stopPropagation()}
+            sx={{ minWidth: 72, fontSize: '0.72rem' }}
+          >
+            {stopLabel}
+          </Button>
+          <Button
+            size="small"
+            variant={restartState === 'confirm' ? 'contained' : 'outlined'}
+            color={restartColor}
+            disabled={restartState === 'loading' || isStopped}
+            onClick={e => { e.stopPropagation(); handleRestart(); }}
+            onKeyDown={e => e.stopPropagation()}
+            sx={{ minWidth: 72, fontSize: '0.72rem' }}
+          >
+            {restartLabel}
+          </Button>
+        </Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          {isStopped
+            ? <Chip label="Stopped" size="small" sx={{ fontWeight: 600, bgcolor: alpha(theme.palette.text.primary, 0.08), fontSize: '0.7rem', height: 20 }} />
+            : <StatusBadge status={status} />
+          }
+          <Typography component="span" sx={{ fontSize: 12, color: 'text.disabled', lineHeight: 1 }}>›</Typography>
+        </Box>
       </Box>
     </Box>
   );
