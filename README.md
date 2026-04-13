@@ -12,14 +12,20 @@ A [Headlamp](https://headlamp.dev) plugin that provides a plain-language Kuberne
 
 ---
 
-## Local development (desktop Headlamp)
+## Prerequisites
+
+| Tool | Why | Install |
+|---|---|---|
+| **Node.js / npm** | Build and watch the plugin source | `brew install node` |
+| **Docker** | Runs Headlamp in a container during dev | [docs.docker.com/get-docker](https://docs.docker.com/get-docker/) |
+| **kind** | Creates a local Kubernetes cluster | `brew install kind` |
+| **kubectl** | Interact with the cluster (port-forward, apply, etc.) | `brew install kubectl` |
+
+Quick check:
 
 ```bash
-npm install
-npm start
+node --version && npm --version && docker --version && kind --version && kubectl version --client
 ```
-
-Then open the [Headlamp desktop app](https://github.com/headlamp-k8s/headlamp/releases) — it will pick up the plugin automatically from the dev server.
 
 ---
 
@@ -28,7 +34,7 @@ Then open the [Headlamp desktop app](https://github.com/headlamp-k8s/headlamp/re
 ### 1. Create a kind cluster
 
 ```bash
-kind create cluster --name sailor-view
+kind create cluster --name sailor-view --config examples/kind-config.yaml
 ```
 
 ### 2. Seed the demo cluster
@@ -60,7 +66,7 @@ Open **http://localhost:4466**. Edit `src/`, save, refresh the browser to pick u
 
 ```bash
 kind delete cluster --name sailor-view
-kind create cluster --name sailor-view
+kind create cluster --name sailor-view --config examples/kind-config.yaml
 ./examples/demo-cluster/install.sh
 npm run dev
 ```
@@ -79,16 +85,10 @@ To run Headlamp **inside** the cluster (no Docker networking quirks), use the st
 
 ## Deploy to a local Kubernetes cluster
 
-### Prerequisites
-
-- [Docker](https://docs.docker.com/get-docker/)
-- [kind](https://kind.sigs.k8s.io/docs/user/quick-start/#installation) — `brew install kind`
-- [kubectl](https://kubernetes.io/docs/tasks/tools/)
-
 ### 1. Create a cluster
 
 ```bash
-kind create cluster --name sailor-view
+kind create cluster --name sailor-view --config examples/kind-config.yaml
 ```
 
 ### 2. Build and load the image
