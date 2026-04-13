@@ -153,10 +153,30 @@ function summarizeSystems(systems: SystemSummary[]) {
   return { total, allGood, needsAttention };
 }
 
+/**
+ * Healthy / Running visuals use fixed greens so they stay readable on Headlamp’s dark shell.
+ * Relying on theme success + alpha often blends into the gray card surface.
+ */
+function runningHealthBorder(theme: Theme): string {
+  return theme.palette.mode === 'dark' ? '#81c784' : theme.palette.success.main;
+}
+
+function runningHealthSurface(theme: Theme): string {
+  return theme.palette.mode === 'dark'
+    ? 'rgba(129, 199, 132, 0.32)'
+    : alpha(theme.palette.success.main, 0.18);
+}
+
+function runningHealthSurfaceHover(theme: Theme): string {
+  return theme.palette.mode === 'dark'
+    ? 'rgba(129, 199, 132, 0.45)'
+    : alpha(theme.palette.success.main, 0.26);
+}
+
 function statusBorderColor(theme: Theme, status: SystemStatus): string {
   switch (status) {
     case 'Running':
-      return theme.palette.success.main;
+      return runningHealthBorder(theme);
     case 'Degraded':
       return theme.palette.warning.main;
     case 'Offline':
@@ -170,7 +190,7 @@ function statusSurfaceColor(theme: Theme, status: SystemStatus): string {
   const a = theme.palette.mode === 'dark' ? 0.18 : 0.12;
   switch (status) {
     case 'Running':
-      return alpha(theme.palette.success.main, a);
+      return runningHealthSurface(theme);
     case 'Degraded':
       return alpha(theme.palette.warning.main, a);
     case 'Offline':
@@ -896,11 +916,12 @@ function NodeCard({ node }: { node: any }) {
     ...(pidPressure ? ['High process load'] : []),
   ];
 
+  const isHealthyNode = isReady && pressures.length === 0 && !isCordoned;
   const dotColor = !isReady
     ? theme.palette.error.main
     : pressures.length > 0 || isCordoned
       ? theme.palette.warning.main
-      : theme.palette.success.main;
+      : runningHealthBorder(theme);
 
   async function handleCordon() {
     if (cordonState === 'idle' || cordonState === 'done' || cordonState === 'error') {
@@ -943,16 +964,24 @@ function NodeCard({ node }: { node: any }) {
             ? theme.palette.error.main
             : pressures.length > 0
               ? theme.palette.warning.main
-              : theme.palette.success.main,
+              : runningHealthBorder(theme),
         borderRadius: 2,
         p: 2,
-        bgcolor: alpha(dotColor, theme.palette.mode === 'dark' ? 0.08 : 0.05),
+        bgcolor: isHealthyNode
+          ? runningHealthSurface(theme)
+          : alpha(dotColor, theme.palette.mode === 'dark' ? 0.08 : 0.05),
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'flex-start',
         gap: 2,
         cursor: isCurrent ? 'default' : 'pointer',
-        '&:hover': !isCurrent ? { bgcolor: alpha(dotColor, theme.palette.mode === 'dark' ? 0.14 : 0.09) } : {},
+        '&:hover': !isCurrent
+          ? {
+              bgcolor: isHealthyNode
+                ? runningHealthSurfaceHover(theme)
+                : alpha(dotColor, theme.palette.mode === 'dark' ? 0.14 : 0.09),
+            }
+          : {},
       }}
     >
       <Box>
@@ -1022,7 +1051,7 @@ function NodeHealthPanel({ nodes }: { nodes: any[] }) {
         </Typography>
         <Divider sx={{ flex: 1 }} />
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-          <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: allReady ? theme.palette.success.main : theme.palette.warning.main }} />
+          <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: allReady ? runningHealthBorder(theme) : theme.palette.warning.main }} />
           <Typography variant="caption" color="text.secondary" fontWeight={500}>
             {allReady
               ? `${total} ${total === 1 ? 'machine' : 'machines'} · All healthy`
