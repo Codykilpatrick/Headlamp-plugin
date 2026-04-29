@@ -11,3 +11,5 @@ RUN npm run build
 FROM ghcr.io/headlamp-k8s/headlamp:latest
 COPY --from=builder /plugin/dist /headlamp/plugins/sailor-view/
 COPY --from=builder /plugin/package.json /headlamp/plugins/sailor-view/package.json
+COPY .plugins/ai-assistant/main.js /headlamp/plugins/ai-assistant/main.js
+COPY .plugins/ai-assistant/package.json /headlamp/plugins/ai-assistant/package.json
